@@ -414,9 +414,8 @@
    Security (RLS) policy on the table (see setup SQL provided separately),
    which allows INSERT but not SELECT for anonymous requests.
    ========================================================================= */
-const SUPABASE_URL = "https://qigjnloopmyaguhupzzh.supabase.co";       // e.g. "https://abcdefgh.supabase.co"
-const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFpZ2pubG9vcG15YWd1aHVwenpoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODU3Mjc0NDEsImV4cCI6MjEwMTMwMzQ0MX0._hoiYmJL4CInio669n-Qzi3pwDR8VmRarYoO04IusKQ";      // the long "anon public" key
-
+const SUPABASE_URL = "YOUR_SUPABASE_PROJECT_URL";       // e.g. "https://abcdefgh.supabase.co"
+const SUPABASE_ANON_KEY = "YOUR_SUPABASE_ANON_KEY";      // the long "anon public" key
 
 let sbClient = null;
 const supabaseConfigured = !SUPABASE_URL.startsWith("YOUR_") && !SUPABASE_ANON_KEY.startsWith("YOUR_");
@@ -729,7 +728,7 @@ const CAT = Object.fromEntries(CATEGORIES.map(c=>[c.key,c]));
 
 /* Quick-review bullet points per category — condensed, high-yield concepts
    for revision, separate from the question bank. */
-const KEY_CONCEPTS = {
+const FALLBACK_KEY_CONCEPTS = {
   moc: [
     "Delegation Five Rights: Right Task, Right Circumstance, Right Person, Right Direction/Communication, Right Supervision/Evaluation.",
     "UAP can do routine, standardized tasks on stable clients with predictable outcomes — never assess, teach, evaluate, or give medications.",
@@ -874,7 +873,7 @@ const KEY_CONCEPTS = {
    A missing entry (or null) shows a graceful "not written yet" fallback —
    this is populated incrementally, category by category.
    ========================================================================= */
-const CONCEPT_DETAILS = {
+const FALLBACK_CONCEPT_DETAILS = {
   moc: [
     { // 0
       body: `<p>Delegation isn't a single yes/no decision — it's five separate checks, and missing any one of them is what actually causes delegation-related errors on the exam and in practice.</p>
@@ -1026,6 +1025,45 @@ const CONCEPT_DETAILS = {
       example: `A client requires hair removal at the surgical site before an abdominal procedure. The pre-op team uses electric clippers rather than a razor, and performs this close to the actual surgery time — both choices specifically aimed at reducing surgical site infection risk from skin micro-trauma.` }
   ]
 };
+
+/* =========================================================================
+   CONCEPT BANK LOADER — pulls live from Supabase's `concepts` table (one
+   row per Key Concepts bullet, with optional detail_body/detail_example
+   for the "Explain" page). Falls back to the hardcoded data above only if
+   Supabase isn't configured or the fetch fails/returns nothing.
+   ========================================================================= */
+let CONCEPTS = {};
+
+function buildFallbackConcepts(){
+  const out = {};
+  Object.keys(FALLBACK_KEY_CONCEPTS).forEach(cat=>{
+    out[cat] = FALLBACK_KEY_CONCEPTS[cat].map((point,i)=>{
+      const d = (FALLBACK_CONCEPT_DETAILS[cat] || [])[i];
+      return { point, detail_body: d ? d.body : null, detail_example: d ? d.example : null };
+    });
+  });
+  return out;
+}
+
+async function loadConceptBank(){
+  if(sbClient){
+    try{
+      const { data, error } = await sbClient.from("concepts").select("*").order("position", { ascending:true });
+      if(error) throw error;
+      if(data && data.length){
+        const out = {};
+        data.forEach(row=>{
+          out[row.category] = out[row.category] || [];
+          out[row.category][row.position] = { point: row.point, detail_body: row.detail_body, detail_example: row.detail_example };
+        });
+        return out;
+      }
+    }catch(e){
+      console.error("Couldn't load concept bank from Supabase — using local fallback.", e);
+    }
+  }
+  return buildFallbackConcepts();
+}
 
 
 /* Each question: {id, category, type:"single"|"sata", subtopic, stem,
@@ -1951,7 +1989,7 @@ async function goHome(){
         <details class="missed-item" id="kc-details-${c.key}" style="margin-bottom:8px;">
           <summary><span><span class="dot" style="background:${c.color};display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:8px;"></span>${c.label}</span><span class="arrow">›</span></summary>
           <ul class="bullets concept-bullets" style="margin-top:10px;">
-            ${(KEY_CONCEPTS[c.key]||[]).map((pt,i)=>`<li>${pt} <button class="explain-btn" onclick="showConceptDetail('${c.key}',${i})">Explain →</button></li>`).join("")}
+            ${(CONCEPTS[c.key]||[]).map((item,i)=>`<li>${item.point} <button class="explain-btn" onclick="showConceptDetail('${c.key}',${i})">Explain →</button></li>`).join("")}
           </ul>
         </details>
       `).join("")}
@@ -1962,8 +2000,9 @@ async function goHome(){
 function showConceptDetail(catKey, index){
   state.view = "concept-detail";
   const c = CAT[catKey];
-  const point = (KEY_CONCEPTS[catKey] || [])[index] || "";
-  const detail = (CONCEPT_DETAILS[catKey] || [])[index];
+  const item = (CONCEPTS[catKey] || [])[index] || {};
+  const point = item.point || "";
+  const detail = (item.detail_body) ? { body:item.detail_body, example:item.detail_example } : null;
 
   const bodyHtml = detail
     ? `<div class="concept-detail-body">${detail.body}</div>
@@ -2435,6 +2474,7 @@ async function boot(){
   document.getElementById("main").innerHTML = `<div class="card"><h3>Loading question bank…</h3></div>`;
   try{
     QUESTIONS = await loadQuestionBank();
+    CONCEPTS = await loadConceptBank();
     renderRail();
     await initAuth();
     goHome();
