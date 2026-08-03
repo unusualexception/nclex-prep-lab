@@ -55,9 +55,32 @@
   .brand{display:flex;align-items:baseline;gap:6px;flex-shrink:0;cursor:pointer;}
   .brand-mark{font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:19px;color:var(--teal-900);}
   .brand-sub{font-family:'IBM Plex Mono',monospace;font-size:11px;letter-spacing:.08em;color:var(--ink-soft);}
-  .topic-pills{display:flex;gap:6px;overflow-x:auto;flex:1;padding-bottom:2px;scrollbar-width:thin;}
-  .topic-pills::-webkit-scrollbar{height:5px;}
-  .topic-pills::-webkit-scrollbar-thumb{background:var(--line);border-radius:4px;}
+  .create-test-btn{flex:1;max-width:280px;text-align:center;}
+
+  /* ---------- Custom test modal ---------- */
+  .custom-test-modal{max-width:600px;max-height:85vh;overflow-y:auto;}
+  .ct-row{display:flex;align-items:center;gap:10px;padding:9px 0;border-bottom:1px solid var(--line-soft);}
+  .ct-row:last-of-type{border-bottom:none;}
+  .ct-row .ct-label{flex:1;min-width:0;}
+  .ct-row .ct-name{font-size:13px;font-weight:500;}
+  .ct-row .ct-weight{font-family:'IBM Plex Mono',monospace;font-size:10.5px;color:var(--ink-soft);}
+  .ct-row select{
+    border:1px solid var(--line);border-radius:7px;padding:6px 8px;font-size:13px;
+    font-family:'IBM Plex Sans',sans-serif;color:var(--ink);background:var(--panel);flex-shrink:0;width:88px;
+  }
+  .ct-row .ct-dot{width:8px;height:8px;border-radius:50%;flex-shrink:0;}
+  .custom-test-total{
+    margin-top:10px;padding-top:10px;border-top:1.5px solid var(--ink);
+    font-family:'IBM Plex Mono',monospace;font-size:13px;font-weight:600;text-align:right;
+  }
+  .feedback-choice{font-size:12px;padding:9px 10px;}
+  .feedback-choice.active{background:var(--teal-900);color:#fff;border-color:var(--teal-900);}
+
+  /* ---------- Star performance rating ---------- */
+  .perf-cell{display:flex;flex-direction:column;align-items:flex-end;flex-shrink:0;width:92px;}
+  .stars{font-size:14px;letter-spacing:1px;color:var(--gold);}
+  .stars.unknown{color:var(--line);}
+  .perf-label{font-family:'IBM Plex Mono',monospace;font-size:9.5px;color:var(--ink-soft);margin-top:2px;}
   .pill{
     flex-shrink:0;
     display:flex;align-items:center;gap:7px;
@@ -129,7 +152,7 @@
   @keyframes ecgmove{from{transform:translateX(0)}to{transform:translateX(-50%)}}
   @media (prefers-reduced-motion: reduce){ .ecg-strip svg{animation:none} }
 
-  /* ---------- Layout ----------test */
+  /* ---------- Layout ---------- */
   .layout{display:flex;flex:1;min-height:0;}
   .rail{
     width:190px;flex-shrink:0;background:var(--panel);
@@ -262,7 +285,12 @@
     .rail-list{flex-direction:row;flex-wrap:nowrap;overflow-x:auto;gap:6px;padding-bottom:4px;}
     .rail-btn{flex-shrink:0;width:auto;}
     .main{padding:20px 16px 50px;}
-    .weight-label{width:130px;font-size:12px;}
+    .weight-label{width:110px;font-size:12px;}
+    .weight-bar-track{display:none;}
+    .perf-cell{width:70px;}
+    .stars{font-size:12px;}
+    .create-test-btn{max-width:none;}
+    .ct-row select{width:70px;}
   }
 </style>
 </head>
@@ -273,10 +301,28 @@
     <div class="brand" id="brandHome" tabindex="0" role="button" aria-label="Go to dashboard">
       <span class="brand-mark">NCLEX</span><span class="brand-sub">PREP LAB</span>
     </div>
-    <nav class="topic-pills" id="topicPills" aria-label="Topic area quizzes"></nav>
+    <button class="btn create-test-btn" onclick="openCustomTestModal()">✎ Create Your Own Test</button>
     <div class="account-widget" id="accountWidget"></div>
     <div class="session-score mono" id="sessionScore">0 / 0 correct</div>
   </header>
+
+  <div class="auth-overlay" id="customTestOverlay" style="display:none;">
+    <div class="auth-modal custom-test-modal">
+      <button class="auth-close" id="customTestCloseBtn" aria-label="Close">×</button>
+      <h3 style="margin:0 0 4px;font-size:17px;">Create Your Own Test</h3>
+      <p style="font-size:12.5px;color:var(--ink-soft);margin:0 0 16px;">Pick how many questions from each category. The % shown is that category's real exam weight, for reference.</p>
+      <div id="customTestRows"></div>
+      <div class="custom-test-total" id="customTestTotal">Total: 0 questions</div>
+      <div style="margin-top:14px;">
+        <div class="mono" style="font-size:11px;color:var(--ink-soft);margin-bottom:8px;text-transform:uppercase;letter-spacing:.05em;">Answer feedback</div>
+        <div style="display:flex;gap:8px;">
+          <button class="btn secondary feedback-choice active" id="ctFeedbackImmediate" style="flex:1;" onclick="setCustomTestFeedback('immediate')">Immediately after each question</button>
+          <button class="btn secondary feedback-choice" id="ctFeedbackEnd" style="flex:1;" onclick="setCustomTestFeedback('end')">Only at the end</button>
+        </div>
+      </div>
+      <button class="btn" id="customTestStartBtn" style="width:100%;margin-top:16px;" onclick="startCustomTest()" disabled>Select at least 1 question to start</button>
+    </div>
+  </div>
 
   <div class="auth-overlay" id="authOverlay" style="display:none;">
     <div class="auth-modal">
@@ -348,8 +394,8 @@
    Security (RLS) policy on the table (see setup SQL provided separately),
    which allows INSERT but not SELECT for anonymous requests.
    ========================================================================= */
-const SUPABASE_URL = "https://qigjnloopmyaguhupzzh.supabase.co";       // e.g. "https://abcdefgh.supabase.co"
-const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFpZ2pubG9vcG15YWd1aHVwenpoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODU3Mjc0NDEsImV4cCI6MjEwMTMwMzQ0MX0._hoiYmJL4CInio669n-Qzi3pwDR8VmRarYoO04IusKQ";      // the long "anon public" key
+const SUPABASE_URL = "YOUR_SUPABASE_PROJECT_URL";       // e.g. "https://abcdefgh.supabase.co"
+const SUPABASE_ANON_KEY = "YOUR_SUPABASE_ANON_KEY";      // the long "anon public" key
 
 let sbClient = null;
 const supabaseConfigured = !SUPABASE_URL.startsWith("YOUR_") && !SUPABASE_ANON_KEY.startsWith("YOUR_");
@@ -1560,6 +1606,8 @@ async function loadQuestionBank(){
 const state = {
   view:"home",            // home | quiz | recap | results
   feedbackMode:"immediate", // "immediate" | "end" — chosen fresh each time a quiz starts
+  quizType:null,           // "full" | "custom"
+  customTestNumber:null,
   studentName:"",  // legacy; display name now comes from authState.user or defaults to Guest
   quizTitle:"",
   quizKey:null,            // category key or "full-N"
@@ -1611,17 +1659,6 @@ function buildFullTest(testNumber){
 }
 
 /* ---------- Rendering: top bar ---------- */
-function renderTopicPills(){
-  const el = document.getElementById("topicPills");
-  el.innerHTML = CATEGORIES.map(c=>{
-    const count = QUESTIONS.filter(q=>q.category===c.key).length;
-    const active = state.quizKey===c.key ? "active":"";
-    return `<button class="pill ${active}" onclick="startTopicQuiz('${c.key}')">
-      <span class="dot" style="background:${c.color}"></span>${c.short}
-      <span class="wt">${c.weight}% · ${count}q</span>
-    </button>`;
-  }).join("");
-}
 function renderRail(){
   const list = document.getElementById("railList");
   const note = document.getElementById("railNote");
@@ -1646,34 +1683,82 @@ function renderSessionScore(){
   document.getElementById("sessionScore").textContent = `${state.sessionCorrect} / ${state.sessionTotal} correct`;
 }
 
+/* ---------- Performance tracking (for the "Your performance" star column) ---------- */
+let SESSION_ANSWER_LOG = []; // guest-only cumulative log for this browser session: {category, status}
+
+function pctToStars(pct){
+  if(pct>=90) return 5;
+  if(pct>=75) return 4;
+  if(pct>=60) return 3;
+  if(pct>=40) return 2;
+  return 1;
+}
+function renderStars(catKey, perf){
+  const p = perf[catKey];
+  if(!p || p.total===0){
+    return `<div class="perf-cell"><div class="stars unknown">★★★★★</div><div class="perf-label">no data yet</div></div>`;
+  }
+  const pct = Math.round((p.correct/p.total)*100);
+  const stars = pctToStars(pct);
+  const filled = "★".repeat(stars) + "☆".repeat(5-stars);
+  return `<div class="perf-cell"><div class="stars">${filled}</div><div class="perf-label">${pct}% (${p.total}q)</div></div>`;
+}
+async function loadPerformanceByCategory(){
+  const perf = {};
+  if(sbClient && authState.user){
+    try{
+      const { data, error } = await sbClient.from("quiz_answers").select("category, status").eq("user_id", authState.user.id);
+      if(!error && data){
+        data.forEach(a=>{
+          perf[a.category] = perf[a.category] || {correct:0, total:0};
+          perf[a.category].total++;
+          if(a.status==="correct") perf[a.category].correct++;
+        });
+      }
+    }catch(e){ console.error("Couldn't load performance history:", e); }
+  } else {
+    SESSION_ANSWER_LOG.forEach(a=>{
+      perf[a.category] = perf[a.category] || {correct:0, total:0};
+      perf[a.category].total++;
+      if(a.status==="correct") perf[a.category].correct++;
+    });
+  }
+  return perf;
+}
+
 /* ---------- Views ---------- */
-function goHome(){
-  state.view="home"; state.quizKey=null;
-  renderTopicPills(); renderRail();
+async function goHome(){
+  state.view="home"; state.quizKey=null; state.quizType=null;
+  renderRail();
+  const perf = await loadPerformanceByCategory();
   const cov = CATEGORIES.map(c=>{
     const count = QUESTIONS.filter(q=>q.category===c.key).length;
     return `<div class="weight-row">
-      <div class="weight-label">${c.label}<div class="mono" style="font-size:10.5px;color:var(--ink-soft);">${c.range}</div></div>
+      <div class="weight-label">${c.label}<div class="mono" style="font-size:10.5px;color:var(--ink-soft);">${c.range} · ${count} live</div></div>
       <div class="weight-bar-track"><div class="weight-bar-fill" style="width:${c.weight*3}%;background:${c.color}"></div></div>
       <div class="weight-pct mono">${c.weight}%</div>
-      <div class="weight-cov mono">${count} live</div>
+      ${renderStars(c.key, perf)}
     </div>`;
   }).join("");
   document.getElementById("main").innerHTML = `
     <div class="hero">
       <h1>Clinical judgment, not just recall.</h1>
-      <p>Every item is paired with a full rationale — why the right answer is right, and exactly which concept you missed if you chose wrong. Pick a single topic above to drill a weak area, or run a full-length test from the rail for exam-day pacing.</p>
+      <p>Every item is paired with a full rationale — why the right answer is right, and exactly which concept you missed if you chose wrong. Build a custom test focused on your weak areas, or run a full-length test from the rail for exam-day pacing.</p>
     </div>
     <div class="card">
       <h3>NCLEX-RN Test Plan Weighting (effective April 2026)</h3>
+      <div style="display:flex;justify-content:flex-end;margin-bottom:2px;">
+        <span class="mono" style="font-size:10px;color:var(--ink-soft);width:92px;text-align:right;">Your performance</span>
+      </div>
       ${cov}
+      ${!authState.user ? `<p style="font-size:11.5px;color:var(--ink-soft);margin:10px 0 0;">Performance shown is for this browser session only — <button class="link-btn" onclick="openAuthModal('signup')">create an account</button> to track it permanently.</p>` : ""}
     </div>
     <div class="card">
       <h3>How to use this</h3>
       <ul class="bullets">
-        <li><b>Topic drills</b> (top bar) — focused practice inside one Client Needs category. Good for shoring up a weak area.</li>
+        <li><b>Create Your Own Test</b> (top bar) — pick exactly how many questions from each category, weighted however you want. Good for drilling a weak area or building a mini-mock.</li>
         <li><b>Full-length tests</b> (left rail) — proportionally sampled across all 8 categories to mirror real exam composition.</li>
-        <li>Feedback is immediate: correct answers are confirmed, wrong answers get a concept-level breakdown of what was missed.</li>
+        <li>Choose feedback timing per test: see answers immediately, or only in a full review at the end.</li>
         <li>Every 10 questions in a full test, a short <b>Quick Check</b> recap surfaces the key concepts you just covered.</li>
         <li>You can <b>skip</b> any question (scores 0) or <b>finish a test early</b> — anything left unanswered is scored as skipped, not wrong.</li>
       </ul>
@@ -1694,11 +1779,6 @@ function goHome(){
 }
 
 let pendingStart = null;
-function startTopicQuiz(catKey){
-  pendingStart = {kind:"topic", key:catKey};
-  document.getElementById("quizOptionsTitle").textContent = CAT[catKey].label;
-  document.getElementById("quizOptionsOverlay").style.display = "flex";
-}
 function startFullTest(n){
   pendingStart = {kind:"full", key:n};
   document.getElementById("quizOptionsTitle").textContent = "Full Length Test "+n;
@@ -1713,24 +1793,108 @@ function confirmQuizMode(mode){
   const p = pendingStart;
   closeQuizOptionsModal();
   if(!p) return;
-  if(p.kind==="topic") actuallyStartTopicQuiz(p.key);
-  else actuallyStartFullTest(p.key);
+  actuallyStartFullTest(p.key);
 }
 
-function actuallyStartTopicQuiz(catKey){
-  const c = CAT[catKey];
-  const qs = shuffle(QUESTIONS.filter(q=>q.category===catKey));
-  state.view="quiz"; state.quizKey=catKey; state.quizTitle=c.label;
-  state.questions=qs; state.index=0; state.answers=[]; state.locked=false; state.selectedSata=new Set();
-  renderTopicPills(); renderRail();
-  renderQuestion();
-}
 function actuallyStartFullTest(n){
   const qs = buildFullTest(n);
-  state.view="quiz"; state.quizKey="full-"+n; state.quizTitle="Full Length Test "+n;
+  state.view="quiz"; state.quizKey="full-"+n; state.quizType="full"; state.quizTitle="Full Length Test "+n;
+  state.testNumberForRetake = n;
   state.questions=qs; state.index=0; state.answers=[]; state.locked=false; state.selectedSata=new Set();
   state.testProgress[n] = {status:"progress"};
-  renderTopicPills(); renderRail();
+  renderRail();
+  renderQuestion();
+}
+
+/* ---------- Create Your Own Test ---------- */
+let customTestFeedbackMode = "immediate";
+let customTestSelections = {}; // catKey -> number selected
+
+function customTestDropdownOptions(available){
+  const steps = [0,5,10,15,20,25,30,40,50,75,100].filter(n=>n<=available);
+  if(!steps.includes(available)) steps.push(available);
+  return steps.sort((a,b)=>a-b);
+}
+
+function openCustomTestModal(){
+  customTestSelections = {};
+  customTestFeedbackMode = "immediate";
+  document.getElementById("ctFeedbackImmediate").classList.add("active");
+  document.getElementById("ctFeedbackEnd").classList.remove("active");
+  const rowsEl = document.getElementById("customTestRows");
+  rowsEl.innerHTML = CATEGORIES.map(c=>{
+    const available = QUESTIONS.filter(q=>q.category===c.key).length;
+    const options = customTestDropdownOptions(available);
+    return `<div class="ct-row">
+      <span class="ct-dot" style="background:${c.color}"></span>
+      <div class="ct-label">
+        <div class="ct-name">${c.label}</div>
+        <div class="ct-weight">Real exam weight: ${c.weight}% (${c.range}) · ${available} available</div>
+      </div>
+      <select onchange="setCustomTestCount('${c.key}', this.value)">
+        ${options.map(n=>`<option value="${n}">${n}</option>`).join("")}
+      </select>
+    </div>`;
+  }).join("");
+  updateCustomTestTotal();
+  document.getElementById("customTestOverlay").style.display = "flex";
+}
+function closeCustomTestModal(){
+  document.getElementById("customTestOverlay").style.display = "none";
+}
+function setCustomTestCount(catKey, value){
+  const n = parseInt(value);
+  if(n>0) customTestSelections[catKey] = n;
+  else delete customTestSelections[catKey];
+  updateCustomTestTotal();
+}
+function updateCustomTestTotal(){
+  const total = Object.values(customTestSelections).reduce((a,b)=>a+b,0);
+  document.getElementById("customTestTotal").textContent = `Total: ${total} question${total===1?"":"s"}`;
+  const btn = document.getElementById("customTestStartBtn");
+  btn.disabled = total===0;
+  btn.textContent = total===0 ? "Select at least 1 question to start" : `Start test (${total} questions) →`;
+}
+function setCustomTestFeedback(mode){
+  customTestFeedbackMode = mode;
+  document.getElementById("ctFeedbackImmediate").classList.toggle("active", mode==="immediate");
+  document.getElementById("ctFeedbackEnd").classList.toggle("active", mode==="end");
+}
+
+async function getNextCustomTestNumber(){
+  if(sbClient && authState.user){
+    try{
+      const { count, error } = await sbClient.from("quiz_results")
+        .select("*", { count:"exact", head:true })
+        .eq("user_id", authState.user.id).eq("quiz_type","custom");
+      if(!error && typeof count === "number") return count+1;
+    }catch(e){ console.error("Couldn't fetch custom test count, falling back to session counter:", e); }
+  }
+  state.guestCustomTestCounter = (state.guestCustomTestCounter||0)+1;
+  return state.guestCustomTestCounter;
+}
+
+async function startCustomTest(){
+  const total = Object.values(customTestSelections).reduce((a,b)=>a+b,0);
+  if(total===0) return;
+  const btn = document.getElementById("customTestStartBtn");
+  btn.disabled = true; btn.textContent = "Building your test…";
+
+  let selected = [];
+  Object.entries(customTestSelections).forEach(([catKey, count])=>{
+    const pool = shuffle(QUESTIONS.filter(q=>q.category===catKey));
+    selected.push(...pool.slice(0, count));
+  });
+  selected = shuffle(selected);
+
+  const n = await getNextCustomTestNumber();
+  state.feedbackMode = customTestFeedbackMode;
+  state.view="quiz"; state.quizKey=null; state.quizType="custom"; state.customTestNumber=n;
+  state.quizTitle = `Customized Test ${n}`;
+  state.questions = selected; state.index=0; state.answers=[]; state.locked=false; state.selectedSata=new Set();
+
+  closeCustomTestModal();
+  renderRail();
   renderQuestion();
 }
 
@@ -1899,6 +2063,7 @@ function renderDeferredFeedback(){
 
 function recordAnswer(q, status, selected){
   state.answers.push({qId:q.id, status, selected, subtopic:q.subtopic, concept:q.explain.concept, category:q.category});
+  SESSION_ANSWER_LOG.push({category:q.category, status});
   state.sessionTotal++; if(status==="correct") state.sessionCorrect++;
   renderSessionScore();
 }
@@ -1994,13 +2159,18 @@ function showResults(){
     </details>`;
   }).join("");
 
+  const retakeAction = state.quizType==="full"
+    ? `startFullTest(${state.testNumberForRetake})`
+    : `openCustomTestModal()`;
+  const retakeLabel = state.quizType==="full" ? "Retake" : "Create another test";
+
   document.getElementById("main").innerHTML = `
     <div class="card">
       <div class="score-hero"><span class="score-big" style="color:${weightedScore>=weightedMax*0.7?'var(--correct)':weightedScore>=weightedMax*0.5?'var(--gold)':'var(--incorrect)'}">${weightedScore}</span><span class="score-sub">of ${weightedMax} pts — ${state.quizTitle}</span></div>
       <p class="mono" style="font-size:13px;color:var(--ink-soft);margin:2px 0 0;">${correct} correct · ${incorrect} incorrect · ${skipped} skipped &nbsp;(${pct}% accuracy) &nbsp;·&nbsp; scoring: +2 correct, −0.5 incorrect, 0 skipped</p>
       <div id="saveStatus"><span class="save-status off">Saving...</span></div>
       <div class="cta-row">
-        <button class="btn" onclick="state.quizKey && state.quizKey.startsWith('full-') ? startFullTest(parseInt(state.quizKey.split('-')[1])) : startTopicQuiz(state.quizKey)">Retake</button>
+        <button class="btn" onclick="${retakeAction}">${retakeLabel}</button>
         <button class="btn secondary" onclick="goHome()">Back to dashboard</button>
       </div>
     </div>
@@ -2021,10 +2191,10 @@ function showResults(){
 
   const record = {
     student_name: state.studentName && state.studentName.trim() ? state.studentName.trim() : "Guest",
-    quiz_type: state.quizKey && state.quizKey.startsWith("full-") ? "full" : "topic",
+    quiz_type: state.quizType,
     quiz_title: state.quizTitle,
-    category_key: state.quizKey && !state.quizKey.startsWith("full-") ? state.quizKey : null,
-    test_number: state.quizKey && state.quizKey.startsWith("full-") ? parseInt(state.quizKey.split("-")[1]) : null,
+    category_key: null,
+    test_number: state.quizType==="full" ? state.testNumberForRetake : (state.quizType==="custom" ? state.customTestNumber : null),
     score_pct: pct,
     correct_count: correct,
     total_count: total,
@@ -2045,12 +2215,13 @@ document.getElementById("authCloseBtn").addEventListener("click", closeAuthModal
 document.getElementById("authOverlay").addEventListener("click", e=>{ if(e.target.id==="authOverlay") closeAuthModal(); });
 document.getElementById("quizOptionsCloseBtn").addEventListener("click", closeQuizOptionsModal);
 document.getElementById("quizOptionsOverlay").addEventListener("click", e=>{ if(e.target.id==="quizOptionsOverlay") closeQuizOptionsModal(); });
+document.getElementById("customTestCloseBtn").addEventListener("click", closeCustomTestModal);
+document.getElementById("customTestOverlay").addEventListener("click", e=>{ if(e.target.id==="customTestOverlay") closeCustomTestModal(); });
 
 async function boot(){
   document.getElementById("main").innerHTML = `<div class="card"><h3>Loading question bank…</h3></div>`;
   try{
     QUESTIONS = await loadQuestionBank();
-    renderTopicPills();
     renderRail();
     await initAuth();
     goHome();
