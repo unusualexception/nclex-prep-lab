@@ -348,8 +348,8 @@
    Security (RLS) policy on the table (see setup SQL provided separately),
    which allows INSERT but not SELECT for anonymous requests.
    ========================================================================= */
-const SUPABASE_URL = "YOUR_SUPABASE_PROJECT_URL";       // e.g. "https://abcdefgh.supabase.co"
-const SUPABASE_ANON_KEY = "YOUR_SUPABASE_ANON_KEY";      // the long "anon public" key
+const SUPABASE_URL = "https://qigjnloopmyaguhupzzh.supabase.co";       // e.g. "https://abcdefgh.supabase.co"
+const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFpZ2pubG9vcG15YWd1aHVwenpoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODU3Mjc0NDEsImV4cCI6MjEwMTMwMzQ0MX0._hoiYmJL4CInio669n-Qzi3pwDR8VmRarYoO04IusKQ";      // the long "anon public" key
 
 let sbClient = null;
 const supabaseConfigured = !SUPABASE_URL.startsWith("YOUR_") && !SUPABASE_ANON_KEY.startsWith("YOUR_");
