@@ -479,31 +479,123 @@ async function signOut(){
   goHome();
 }
 
+let historyCache = {}; // resultId -> fetched answer detail, so re-expanding doesn't refetch
+
 async function viewMyResults(){
   if(!sbClient || !authState.user) return;
+  historyCache = {};
   document.getElementById("main").innerHTML = `<div class="card"><h3>Loading your history…</h3></div>`;
   const { data, error } = await sbClient.from("quiz_results")
     .select("*").eq("user_id", authState.user.id)
     .order("created_at", { ascending:false });
   if(error){
-    document.getElementById("main").innerHTML = `<div class="card"><p>Couldn't load history: ${error.message}</p></div>`;
+    document.getElementById("main").innerHTML = `<div class="card"><p>Couldn't load history: ${error.message}</p><p style="font-size:12px;color:var(--ink-soft);">If this persists, check that the "Logged-in users view own results" policy exists on quiz_results in Supabase.</p></div>`;
     return;
   }
-  const rows = (data||[]).map(r=>`
-    <div class="weight-row">
-      <div class="weight-label">${r.quiz_title}<div class="mono" style="font-size:10.5px;color:var(--ink-soft);">${new Date(r.created_at).toLocaleString()} · ${r.weighted_score!=null? r.weighted_score+'/'+r.weighted_max+' pts':''}</div></div>
-      <div class="weight-bar-track"><div class="weight-bar-fill" style="width:${r.score_pct}%;background:${r.score_pct>=75?'#1E7A4C':r.score_pct>=60?'#A9782C':'#B8402A'}"></div></div>
-      <div class="weight-pct mono">${r.score_pct}%</div>
-      <div class="weight-cov mono">${r.correct_count}/${r.total_count}</div>
-    </div>`).join("") || `<p style="color:var(--ink-soft);font-size:13.5px;">No attempts yet — take a quiz to start building your history.</p>`;
+  renderHistoryList(data||[]);
+}
+
+function renderHistoryList(rows){
+  const list = rows.length ? rows.map(r=>{
+    const wPct = r.weighted_max ? Math.max(0, Math.min(100, Math.round(r.weighted_score/r.weighted_max*100))) : r.score_pct;
+    return `
+    <div class="missed-item" id="hist-${r.id}">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;">
+        <div style="flex:1;cursor:pointer;" onclick="toggleHistoryDetail('${r.id}')">
+          <div style="font-weight:600;font-size:13.5px;">${r.quiz_title}</div>
+          <div class="mono" style="font-size:10.5px;color:var(--ink-soft);margin:2px 0 6px;">${new Date(r.created_at).toLocaleString()}</div>
+          <div class="weight-bar-track"><div class="weight-bar-fill" style="width:${wPct}%;background:${wPct>=70?'#1E7A4C':wPct>=50?'#A9782C':'#B8402A'}"></div></div>
+        </div>
+        <div style="text-align:right;flex-shrink:0;">
+          <div class="score-big" style="font-size:22px;">${r.weighted_score!=null? r.weighted_score : '—'}</div>
+          <div class="mono" style="font-size:10px;color:var(--ink-soft);">of ${r.weighted_max!=null? r.weighted_max : '—'} pts</div>
+          <div class="mono" style="font-size:10.5px;color:var(--ink-soft);margin-top:2px;">${r.correct_count}/${r.total_count} correct (${r.score_pct}%)</div>
+        </div>
+      </div>
+      <div style="display:flex;gap:10px;margin-top:8px;">
+        <button class="link-btn" onclick="toggleHistoryDetail('${r.id}')" id="hist-toggle-${r.id}">▸ View every answer</button>
+        <button class="link-btn" style="color:var(--incorrect);" onclick="deleteHistoryItem('${r.id}')">Delete this attempt</button>
+      </div>
+      <div id="hist-detail-${r.id}"></div>
+    </div>`;
+  }).join("") : `<p style="color:var(--ink-soft);font-size:13.5px;">No attempts yet — take a quiz to start building your history.</p>`;
+
   document.getElementById("main").innerHTML = `
     <div class="card">
-      <h3>Your history — ${authState.user.name}</h3>
-      ${rows}
+      <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">
+        <h3 style="margin:0;">Your history — ${authState.user.name}</h3>
+        ${rows.length ? `<button class="link-btn" style="color:var(--incorrect);" onclick="clearAllHistory()">Clear all history</button>` : ""}
+      </div>
     </div>
+    <div class="card">${list}</div>
     <button class="btn secondary" onclick="goHome()">Back to dashboard</button>
   `;
 }
+
+async function toggleHistoryDetail(resultId){
+  const detailEl = document.getElementById("hist-detail-"+resultId);
+  const toggleBtn = document.getElementById("hist-toggle-"+resultId);
+  if(detailEl.dataset.open==="1"){
+    detailEl.innerHTML = "";
+    detailEl.dataset.open = "0";
+    if(toggleBtn) toggleBtn.textContent = "▸ View every answer";
+    return;
+  }
+  if(toggleBtn) toggleBtn.textContent = "▾ Hide answers";
+  detailEl.dataset.open = "1";
+  detailEl.innerHTML = `<p style="font-size:12px;color:var(--ink-soft);margin-top:8px;">Loading answers…</p>`;
+
+  if(!historyCache[resultId]){
+    const { data: answers, error: aErr } = await sbClient.from("quiz_answers")
+      .select("*").eq("quiz_result_id", resultId).eq("user_id", authState.user.id);
+    if(aErr){ detailEl.innerHTML = `<p style="font-size:12px;color:var(--incorrect);">Couldn't load answers: ${aErr.message}</p>`; return; }
+    const qIds = (answers||[]).map(a=>a.question_id);
+    let qMap = {};
+    if(qIds.length){
+      const { data: qs } = await sbClient.from("questions").select("*").in("id", qIds);
+      (qs||[]).forEach(q=> qMap[q.id]=q);
+    }
+    historyCache[resultId] = (answers||[]).map(a=>({...a, question:qMap[a.question_id]}));
+  }
+
+  const items = historyCache[resultId];
+  detailEl.innerHTML = `<div style="margin-top:10px;display:flex;flex-direction:column;gap:8px;">` +
+    items.map(a=>{
+      const q = a.question;
+      const yourAns = Array.isArray(a.selected) ? a.selected.join(", ") : (a.selected ?? "—");
+      const correctAns = Array.isArray(a.correct_answer) ? a.correct_answer.join(", ") : a.correct_answer;
+      if(!q){
+        return `<div class="recap-item">${a.correct_flag?"✓":"✗"} ${a.subtopic} — question no longer in bank</div>`;
+      }
+      const wrongList = Object.entries((q.explain&&q.explain.wrong)||{}).map(([k,txt])=>
+        `<div class="why-wrong-item"><b>${k}</b>${txt}</div>`).join("");
+      return `<details class="missed-item" style="background:var(--paper);">
+        <summary><span>${a.correct_flag?"✓":"✗"} ${a.subtopic}${q.explain?" — "+q.explain.concept:""}</span><span class="arrow">›</span></summary>
+        <p class="stem" style="font-size:13.5px;">${q.stem}</p>
+        <p class="mono" style="font-size:12px;color:var(--ink-soft);margin:0 0 8px;">Your answer: ${yourAns} &nbsp;·&nbsp; Correct: ${correctAns}</p>
+        ${q.explain? `<ul class="bullets">${q.explain.why.map(w=>`<li>${w}</li>`).join("")}</ul>` : ""}
+        ${wrongList ? `<div class="explain-block">${wrongList}</div>` : ""}
+        ${q.explain? `<div class="quickcheck"><span class="lightning">⚡</span><span>${q.explain.quick}</span></div>` : ""}
+      </details>`;
+    }).join("") + `</div>`;
+}
+
+async function deleteHistoryItem(resultId){
+  if(!confirm("Delete this test attempt and all its answers? This can't be undone.")) return;
+  const { error } = await sbClient.from("quiz_results").delete().eq("id", resultId).eq("user_id", authState.user.id);
+  if(error){ alert("Couldn't delete: "+error.message); return; }
+  const el = document.getElementById("hist-"+resultId);
+  if(el) el.remove();
+  delete historyCache[resultId];
+}
+
+async function clearAllHistory(){
+  if(!confirm("Delete ALL of your saved test history? This can't be undone.")) return;
+  const { error } = await sbClient.from("quiz_results").delete().eq("user_id", authState.user.id);
+  if(error){ alert("Couldn't clear history: "+error.message); return; }
+  viewMyResults();
+}
+
 
 async function saveResultToSupabase(record, questions, answers){
   const statusEl = document.getElementById("saveStatus");
@@ -1705,8 +1797,8 @@ function showResults(){
 
   document.getElementById("main").innerHTML = `
     <div class="card">
-      <div class="score-hero"><span class="score-big" style="color:${pct>=75?'var(--correct)':pct>=60?'var(--gold)':'var(--incorrect)'}">${pct}%</span><span class="score-sub">${correct} of ${total} correct — ${state.quizTitle}</span></div>
-      <p class="mono" style="font-size:13px;color:var(--ink-soft);margin:2px 0 0;">Weighted score: <b style="color:var(--ink);">${weightedScore}</b> / ${weightedMax} pts &nbsp;(+2 per correct, −0.5 per incorrect)</p>
+      <div class="score-hero"><span class="score-big" style="color:${weightedScore>=weightedMax*0.7?'var(--correct)':weightedScore>=weightedMax*0.5?'var(--gold)':'var(--incorrect)'}">${weightedScore}</span><span class="score-sub">of ${weightedMax} pts — ${state.quizTitle}</span></div>
+      <p class="mono" style="font-size:13px;color:var(--ink-soft);margin:2px 0 0;">${correct} of ${total} correct (${pct}% accuracy) &nbsp;·&nbsp; scoring: +2 per correct, −0.5 per incorrect</p>
       <div id="saveStatus"><span class="save-status off">Saving...</span></div>
       <div class="cta-row">
         <button class="btn" onclick="state.quizKey && state.quizKey.startsWith('full-') ? startFullTest(parseInt(state.quizKey.split('-')[1])) : startTopicQuiz(state.quizKey)">Retake</button>
