@@ -509,7 +509,7 @@ function renderHistoryList(rows){
         <div style="text-align:right;flex-shrink:0;">
           <div class="score-big" style="font-size:22px;">${r.weighted_score!=null? r.weighted_score : '—'}</div>
           <div class="mono" style="font-size:10px;color:var(--ink-soft);">of ${r.weighted_max!=null? r.weighted_max : '—'} pts</div>
-          <div class="mono" style="font-size:10.5px;color:var(--ink-soft);margin-top:2px;">${r.correct_count}/${r.total_count} correct (${r.score_pct}%)</div>
+          <div class="mono" style="font-size:10.5px;color:var(--ink-soft);margin-top:2px;">${r.correct_count}/${r.total_count} correct (${r.score_pct}%)${r.skipped_count? ` · ${r.skipped_count} skipped`:""}</div>
         </div>
       </div>
       <div style="display:flex;gap:10px;margin-top:8px;">
@@ -559,18 +559,20 @@ async function toggleHistoryDetail(resultId){
   }
 
   const items = historyCache[resultId];
+  const icon = {correct:"✓", incorrect:"✗", skipped:"⏭"};
   detailEl.innerHTML = `<div style="margin-top:10px;display:flex;flex-direction:column;gap:8px;">` +
     items.map(a=>{
       const q = a.question;
-      const yourAns = Array.isArray(a.selected) ? a.selected.join(", ") : (a.selected ?? "—");
+      const st = a.status || (a.correct_flag ? "correct" : "incorrect");
+      const yourAns = a.selected!=null ? (Array.isArray(a.selected) ? a.selected.join(", ") : a.selected) : "— (skipped)";
       const correctAns = Array.isArray(a.correct_answer) ? a.correct_answer.join(", ") : a.correct_answer;
       if(!q){
-        return `<div class="recap-item">${a.correct_flag?"✓":"✗"} ${a.subtopic} — question no longer in bank</div>`;
+        return `<div class="recap-item">${icon[st]||"?"} ${a.subtopic} — question no longer in bank</div>`;
       }
       const wrongList = Object.entries((q.explain&&q.explain.wrong)||{}).map(([k,txt])=>
         `<div class="why-wrong-item"><b>${k}</b>${txt}</div>`).join("");
       return `<details class="missed-item" style="background:var(--paper);">
-        <summary><span>${a.correct_flag?"✓":"✗"} ${a.subtopic}${q.explain?" — "+q.explain.concept:""}</span><span class="arrow">›</span></summary>
+        <summary><span>${icon[st]||"?"} ${a.subtopic}${q.explain?" — "+q.explain.concept:""}</span><span class="arrow">›</span></summary>
         <p class="stem" style="font-size:13.5px;">${q.stem}</p>
         <p class="mono" style="font-size:12px;color:var(--ink-soft);margin:0 0 8px;">Your answer: ${yourAns} &nbsp;·&nbsp; Correct: ${correctAns}</p>
         ${q.explain? `<ul class="bullets">${q.explain.why.map(w=>`<li>${w}</li>`).join("")}</ul>` : ""}
@@ -616,7 +618,7 @@ async function saveResultToSupabase(record, questions, answers){
     // Persist every individual question + answer, linked to this result
     if(questions && answers && questions.length){
       const answerRows = questions.map((q,i)=>{
-        const a = answers[i] || {};
+        const a = answers[i] || {status:"skipped", selected:null};
         return {
           quiz_result_id: data.id,
           user_id: userId,
@@ -626,7 +628,8 @@ async function saveResultToSupabase(record, questions, answers){
           subtopic: q.subtopic,
           selected: a.selected!==undefined ? a.selected : null,
           correct_answer: q.correct,
-          correct_flag: !!a.correctFlag
+          status: a.status || "skipped",
+          correct_flag: a.status === "correct"
         };
       });
       const { error: aErr } = await sbClient.from("quiz_answers").insert(answerRows);
@@ -656,6 +659,147 @@ const CATEGORIES = [
   {key:"pa",    label:"Physiological Adaptation",                short:"Physio Adapt",   weight:14, range:"11–17%", color:"#7A3B2E"}
 ];
 const CAT = Object.fromEntries(CATEGORIES.map(c=>[c.key,c]));
+
+/* Quick-review bullet points per category — condensed, high-yield concepts
+   for revision, separate from the question bank. */
+const KEY_CONCEPTS = {
+  moc: [
+    "Delegation Five Rights: Right Task, Right Circumstance, Right Person, Right Direction/Communication, Right Supervision/Evaluation.",
+    "UAP can do routine, standardized tasks on stable clients with predictable outcomes — never assess, teach, evaluate, or give medications.",
+    "LPN/LVN can care for stable, predictable clients and reinforce (not initiate) teaching; RN handles unstable, unpredictable, or first-time teaching/assessment.",
+    "Prioritization: Airway/Breathing/Circulation problems outrank pain, teaching, or psychosocial needs — treat what threatens life fastest, first.",
+    "Maslow's hierarchy for prioritization: Physiological → Safety → Love/Belonging → Esteem → Self-actualization.",
+    "Informed consent: the provider explains risks/benefits; the nurse verifies understanding and witnesses the signature.",
+    "A valid advance directive reflects the client's own wishes and outranks family preference.",
+    "HIPAA minimum necessary standard: access only what's needed for your role in this client's care — curiosity-based access is a violation.",
+    "Medication error sequence: assess/stabilize the client → notify the provider → document facts in the chart → file the incident report separately (never referenced in the chart).",
+    "Just Culture: human error/system failures get reviewed for systemic fixes without punishment; reckless behavior warrants accountability. Never punish good-faith near-miss reporting.",
+    "Root cause analysis is systems-focused and forward-looking — not a blame exercise aimed at one person.",
+    "A competent adult can refuse treatment (autonomy) even when the nurse disagrees (beneficence) — document thoroughly and notify the provider.",
+    "DNR means no CPR/resuscitation only — it does NOT mean withholding other treatment, comfort care, or pain management.",
+    "Negligence requires four elements: Duty + Breach + Causation + Damages — all must be present.",
+    "Unsafe assignment: voice the concern → request adjustment → file a formal objection if unresolved → keep providing safe care throughout. Never simply walk out."
+  ],
+  sic: [
+    "Airborne precautions (N95 + negative-pressure room): TB, Measles, Varicella.",
+    "Droplet precautions (surgical mask, 3-ft separation): Influenza, Mumps, Rubella, Pertussis.",
+    "Contact precautions (gown + gloves): C. diff (soap and water only — alcohol gel doesn't kill spores), MRSA, VRE.",
+    "Standard precautions apply to every client, every time — regardless of known diagnosis.",
+    "Fall prevention starts least-restrictive: bed alarm, low bed, non-skid footwear, clutter-free path — restraints are always a last resort.",
+    "Restraints require a specific time-limited provider order (never PRN), frequent reassessment (~q2h), and thorough documentation.",
+    "RACE for fire: Rescue → Alarm → Confine → Extinguish/Evacuate. PASS for extinguisher use: Pull → Aim → Squeeze → Sweep.",
+    "The 'Rights' of medication administration: Client, Drug, Dose, Route, Time, Documentation, Reason.",
+    "Needlestick response: wash immediately with soap and water first, then report and pursue post-exposure evaluation.",
+    "CLABSI bundle: hand hygiene + chlorhexidine skin prep + sterile dressing technique + daily review of continued line necessity.",
+    "PPE doffing order: gloves first (most contaminated), mask/respirator typically last.",
+    "Radiation safety: Time (minimize), Distance (maximize), Shielding (lead apron) — the three core principles.",
+    "Alarm fatigue is a real patient safety hazard — every alarm needs assessment, never reflexive silencing.",
+    "Two-identifier verification is required before medications, procedures, and especially blood transfusions (with an independent double-check).",
+    "Standard hair-removal for surgery: clipping, not razor shaving — shaving causes micro-nicks that raise infection risk."
+  ],
+  hpm: [
+    "Erikson's stages: Infant = Trust vs. Mistrust, Toddler = Autonomy vs. Shame/Doubt, Preschool = Initiative vs. Guilt, School-age = Industry vs. Inferiority, Adolescent = Identity vs. Role Confusion.",
+    "Infant milestones: 6 months ≈ sits with support + transfers objects; 9 months ≈ pincer grasp + crawls; 12 months ≈ first steps + first words.",
+    "Live vaccines (MMR, varicella, intranasal flu) are avoided in pregnancy and in significantly immunocompromised clients.",
+    "Preeclampsia red flags: severe headache + visual changes + edema/rapid weight gain + elevated BP — always urgent.",
+    "Safe sleep: Back to sleep, firm mattress, bare crib — acrocyanosis is normal in the first 24–48h, but central cyanosis is never normal.",
+    "Toddlers should have milk intake limited to about 16–24 oz/day; excess milk risks iron-deficiency ('milk') anemia.",
+    "Folic acid's critical window is before conception and very early in pregnancy — the neural tube closes by about day 28.",
+    "Colorectal cancer screening for average-risk adults typically begins at age 45.",
+    "Postpartum depression screening at well-baby visits catches cases mothers may not raise unprompted — screening isn't only for visible distress.",
+    "Car seats: stay rear-facing as long as possible, based on the seat's height/weight limits, not a fixed age.",
+    "Pacifier use at sleep time (once feeding is established) is a protective factor against SIDS — not a risk factor.",
+    "Adolescent confidentiality laws vary by jurisdiction/topic (contraception, STIs, substance use, mental health) — know the exceptions (safety risk, abuse).",
+    "Teach-back method: have the client explain/demonstrate information back in their own words to confirm real understanding.",
+    "Newborn metabolic (heel-stick) screening is typically done 24–48 hours after birth, after some feeding.",
+    "Health promotion means catching disease before symptoms — don't wait for symptoms to justify screening."
+  ],
+  psy: [
+    "Therapeutic techniques: open-ended questions, reflection, silence, restating, clarifying. Nontherapeutic: false reassurance, giving advice, changing the subject.",
+    "Grief stages (denial, anger, bargaining, depression, acceptance) are not linear and can repeat in any order — all are normal.",
+    "Persistent, disabling grief well beyond expected timeframes may indicate complicated/prolonged grief disorder — a distinct, treatable condition.",
+    "Displacement = redirecting emotion at the wrong (safer) target. Projection = attributing your own unacceptable feelings to someone else.",
+    "IPV screening must always happen privately, directly, and never with the suspected abuser in the room.",
+    "Alcohol withdrawal timeline: 6–24h tremors/anxiety → 12–48h seizure risk → 48–96h delirium tremens.",
+    "Opioid withdrawal = flu-like/GI symptoms + dilated pupils — essentially the opposite picture from opioid overdose (sedation + pinpoint pupils).",
+    "During acute panic/anxiety: stay with the client, stay calm, keep language short and simple — complex reasoning can't be processed under high anxiety.",
+    "With hallucinations: acknowledge the client's feelings without reinforcing the hallucination as real; always assess for command hallucinations.",
+    "Asking directly about suicidal ideation does NOT plant the idea — always ask about ideation, plan, and means.",
+    "Protective factors against suicide: strong support system, reasons for living, treatment engagement, connectedness. Risk factors include access to means and isolation.",
+    "Delirium = acute onset + fluctuating course + often reversible (treat the cause). Dementia = gradual, progressive, generally irreversible.",
+    "Splitting (borderline personality) is managed with consistent, team-wide limits — inconsistency between staff fuels the pattern.",
+    "Negative symptoms of schizophrenia (flat affect, avolition, alogia) = reduced normal functioning. Positive symptoms (hallucinations, delusions) = added abnormal experiences.",
+    "Motivational interviewing = OARS: Open-ended questions, Affirmations, Reflective listening, Summarizing."
+  ],
+  bcc: [
+    "Pressure injury staging: Stage I = intact skin, red. Stage II = shallow open, pink wound bed. Stage III = fat visible. Stage IV = bone/muscle/tendon visible.",
+    "Reposition immobile, at-risk clients at least every 2 hours; use a 30-degree lateral tilt rather than a full 90-degree side-lying position to protect the hip.",
+    "Tube feeding safety: HOB at least 30–45°, verify placement before every feeding/medication, maintain elevation 30–60 min after.",
+    "Constipation ladder: fluids/fiber/mobility first, then stool softener/laxative, then more invasive measures if needed.",
+    "Cane rule: hold the cane on the STRONG side, advance it together with the weak leg.",
+    "Passive ROM maintains joint mobility and prevents contractures — it does NOT build muscle strength (active/resistive exercise does that).",
+    "Dysphagia care: upright position + chin tuck + thickened liquids + small bites + stay upright 30–60 min after meals.",
+    "Feeding a client with one-sided weakness: place food on the STRONG (unaffected) side to reduce pocketing and aspiration risk.",
+    "Safe body mechanics: wide stance, bend at the KNEES not the waist, keep the load close, never twist while lifting.",
+    "CAUTI prevention: drainage bag below bladder level, tubing free of kinks, and daily review of continued catheter necessity.",
+    "Renal diet typically restricts potassium (bananas, oranges, potatoes), phosphorus (dairy, nuts), and sodium.",
+    "Incentive spirometer: slow deep INHALE, brief hold, normal exhale, repeated hourly while awake — prevents post-op atelectasis.",
+    "Opioid-induced constipation is predictable — prevent proactively with fluids, ambulation, a scheduled bowel regimen, and fiber.",
+    "Restraint care: circulation + skin + ROM checks at least every 2 hours, snug but never overly tight.",
+    "End-of-life care priority is comfort over cure: proactive pain control, gentle hygiene, emotional/spiritual support — never forced intake or withheld analgesia."
+  ],
+  pharm: [
+    "Dosage formula: (Dose Desired ÷ Dose on Hand) × Quantity = amount to give.",
+    "Warfarin therapeutic INR ≈ 2.0–3.0; monitored via INR; antidote is vitamin K.",
+    "Heparin monitored via aPTT; antidote is protamine sulfate.",
+    "Digoxin: always check apical pulse for 1 full minute before giving; hold and notify if HR <60. Toxicity = nausea, visual halos, bradycardia, confusion.",
+    "Rule of 15 for hypoglycemia: 15g fast-acting carb → recheck glucose in 15 min → repeat if still low. IV dextrose only if the client can't safely swallow.",
+    "Opioid priority monitoring: respiratory rate and sedation level. Antidote is naloxone — but naloxone often wears off before the opioid does, so monitor for recurrence.",
+    "Lithium safety triad: stay hydrated, keep sodium intake consistent, avoid NSAIDs. Narrow therapeutic range ≈ 0.6–1.2 mEq/L.",
+    "IV potassium: NEVER IV push — always diluted and given via infusion pump, ideally with cardiac monitoring.",
+    "High-alert medication categories: insulin, anticoagulants, opioids, concentrated electrolytes, chemotherapy — all warrant independent double-checks.",
+    "SSRIs take about 2–4 weeks for full effect; don't stop abruptly; monitor for suicidal ideation especially early in treatment.",
+    "Corticosteroids after prolonged use: never stop abruptly — taper exactly as prescribed to avoid adrenal insufficiency/crisis.",
+    "PCA safety: only the client should ever press the button — 'PCA by proxy' defeats its built-in over-sedation safeguard.",
+    "Anaphylaxis first-line treatment: IM epinephrine, immediately — every other treatment is an adjunct given after.",
+    "Serotonin syndrome triad: altered mental status + autonomic instability (fever, tachycardia, sweating) + neuromuscular findings (clonus, hyperreflexia).",
+    "Metformin + IV contrast: potential interaction via renal impairment → lactic acidosis risk — follow facility hold protocol."
+  ],
+  rrp: [
+    "Hyperkalemia = peaked T waves. Hypokalemia = flattened T waves + prominent U waves. Normal K+ = 3.5–5.0 mEq/L.",
+    "ROME for ABGs: Respiratory = Opposite (pH and CO2 move opposite directions); Metabolic = Equal (pH and HCO3 move the same direction).",
+    "Severe hyponatremia (<120) is a neuro emergency: confusion, seizures, cerebral edema risk.",
+    "Suspected transfusion reaction: STOP the transfusion immediately, keep the vein open with NS via new tubing, then notify the provider.",
+    "Pulseless V-fib/V-tach = immediate CPR + defibrillation — time to defibrillation is the single biggest survival factor.",
+    "VTE risk factors (Virchow's triad): venous stasis (immobility), vessel injury (surgery), hypercoagulability (contraceptives, smoking, obesity).",
+    "Compartment syndrome 6 P's: Pain (out of proportion, unrelieved by opioids), Pallor, Paresthesia, Pulselessness, Poikilothermia, Paralysis — pain out of proportion is the early red flag.",
+    "Braden Scale: LOWER score = HIGHER pressure injury risk (opposite direction from many other scales).",
+    "Sepsis bundle: draw blood cultures FIRST, then give broad-spectrum antibiotics within 1 hour — don't delay antibiotics waiting on cultures.",
+    "Post-op DVT prevention = SCDs + early ambulation + anticoagulant prophylaxis together — immobility itself increases risk, it doesn't reduce it.",
+    "Stroke = 'time is brain': immediate non-contrast CT to rule out hemorrhage BEFORE any antiplatelet/thrombolytic therapy; tPA window ≈ 3–4.5 hours.",
+    "Wound evisceration: cover with STERILE SALINE-MOISTENED gauze, notify the surgeon immediately — never push organs back in.",
+    "Phlebitis signs (redness, warmth, palpable cord) = discontinue that IV and start a new site elsewhere.",
+    "Ionizing radiation imaging (X-ray, CT) in anyone of childbearing potential = screen for possible pregnancy first.",
+    "Pre-op hair removal: clipping (not razor shaving), done close to surgery time, to reduce surgical site infection risk."
+  ],
+  pa: [
+    "Atypical MI presentation (vague fatigue, nausea, jaw/back pain) is COMMON in women, older adults, and diabetics — still warrants an immediate ECG.",
+    "DKA priority sequence: IV fluids first → then IV insulin → closely monitor potassium (insulin drives K+ into cells).",
+    "DKA (type 1, ketosis/acidosis, Kussmaul respirations) vs. HHS (type 2, extreme hyperglycemia, minimal ketosis, severe dehydration).",
+    "Severe hyperkalemia with ECG changes: calcium gluconate FIRST (protects the heart), then insulin+glucose and/or kayexalate/dialysis to actually lower potassium.",
+    "Chronic CO2 retainers (severe COPD): target SpO2 ≈ 88–92% — over-oxygenating can suppress their hypoxic respiratory drive.",
+    "Earliest sign of increased ICP is a change in level of consciousness — Cushing's triad (widened pulse pressure, bradycardia, irregular respirations) is a LATE, ominous sign.",
+    "Burn priority = Airway first (watch for soot, singed nasal hair, hoarseness), THEN fluid resuscitation (Parkland formula), THEN wound/pain care.",
+    "In severe asthma, a SILENT chest is the true emergency — it means almost no air is moving, unlike loud wheezing which means air is still moving.",
+    "Autonomic dysreflexia (SCI at T6 or above): sit the client UP, loosen clothing, find and remove the trigger (bladder/bowel first) — a hypertensive emergency.",
+    "Tension pneumothorax: tracheal deviation AWAY from the affected side + absent breath sounds + hypotension + JVD — immediate needle decompression is life-saving.",
+    "Cardiac tamponade — Beck's triad: muffled heart sounds + jugular venous distension + hypotension, plus pulsus paradoxus.",
+    "Septic shock has two phases: warm/hyperdynamic (early, vasodilated) can progress to cold/hypodynamic (poor perfusion) if untreated — don't be falsely reassured by warm skin.",
+    "Addisonian crisis: missed steroid doses + severe hypotension + weakness + GI symptoms = emergency needing immediate IV corticosteroids and fluids.",
+    "'Pain out of proportion to exam findings' + atrial fibrillation = think acute mesenteric ischemia, a vascular emergency.",
+    "Fluid volume deficit: tachycardia + hypotension + dry mucous membranes + concentrated urine + poor skin turgor — pulses are weak/thready, not bounding."
+  ]
+};
 
 /* Each question: {id, category, type:"single"|"sata", subtopic, stem,
    options:[{k,t}], correct: "A" | ["A","C"],
@@ -1421,7 +1565,7 @@ const state = {
   quizKey:null,            // category key or "full-N"
   questions:[],
   index:0,
-  answers:[],              // {qId, correctFlag, selected}
+  answers:[],              // {qId, status:"correct"|"incorrect"|"skipped", selected}
   locked:false,
   selectedSata:new Set(),
   sessionCorrect:0,
@@ -1531,7 +1675,20 @@ function goHome(){
         <li><b>Full-length tests</b> (left rail) — proportionally sampled across all 8 categories to mirror real exam composition.</li>
         <li>Feedback is immediate: correct answers are confirmed, wrong answers get a concept-level breakdown of what was missed.</li>
         <li>Every 10 questions in a full test, a short <b>Quick Check</b> recap surfaces the key concepts you just covered.</li>
+        <li>You can <b>skip</b> any question (scores 0) or <b>finish a test early</b> — anything left unanswered is scored as skipped, not wrong.</li>
       </ul>
+    </div>
+    <div class="card">
+      <h3>Key Concepts — quick review</h3>
+      <p style="font-size:13px;color:var(--ink-soft);margin:0 0 12px;">Condensed, high-yield concepts per category — good for a fast pre-test refresh. Tap a category to expand.</p>
+      ${CATEGORIES.map(c=>`
+        <details class="missed-item" style="margin-bottom:8px;">
+          <summary><span><span class="dot" style="background:${c.color};display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:8px;"></span>${c.label}</span><span class="arrow">›</span></summary>
+          <ul class="bullets" style="margin-top:10px;">
+            ${(KEY_CONCEPTS[c.key]||[]).map(pt=>`<li>${pt}</li>`).join("")}
+          </ul>
+        </details>
+      `).join("")}
     </div>
   `;
 }
@@ -1605,6 +1762,9 @@ function renderQuestion(){
         </button>`).join("")}
     </div>
     ${isSata ? `<div class="submit-row"><button class="btn" onclick="submitSata()">Check Answer</button></div>` : ""}
+    <div class="nav-row" style="margin-top:2px;">
+      <button class="link-btn" style="color:var(--ink-soft);" onclick="skipQuestion()">Skip this question (scores 0) →</button>
+    </div>
     <div id="feedbackZone"></div>
   `;
 }
@@ -1616,7 +1776,7 @@ function renderRecap(){
     <div class="recap-item"><span class="num mono">${i+1}</span>
       <span><b>${a.subtopic}</b> — ${a.concept}</span>
     </div>`).join("");
-  const correctCount = last10.filter(a=>a.correctFlag).length;
+  const correctCount = last10.filter(a=>a.status==="correct").length;
   document.getElementById("main").innerHTML = `
     <div class="card">
       <div class="recap-icon">⚡</div>
@@ -1636,8 +1796,8 @@ function answerSingle(key){
   if(state.locked) return;
   state.locked = true;
   const q = state.questions[state.index];
-  const correctFlag = key === q.correct;
-  recordAnswer(q, correctFlag, key);
+  const status = key === q.correct ? "correct" : "incorrect";
+  recordAnswer(q, status, key);
   if(state.feedbackMode==="immediate"){
     document.querySelectorAll("#optionsWrap .opt").forEach(btn=>{
       btn.classList.add("locked");
@@ -1645,7 +1805,7 @@ function answerSingle(key){
       if(k === q.correct) btn.classList.add("correct");
       else if(k === key) btn.classList.add("incorrect");
     });
-    renderFeedback(q, correctFlag, key);
+    renderFeedback(q, status);
   } else {
     document.querySelectorAll("#optionsWrap .opt").forEach(btn=>{
       btn.classList.add("locked");
@@ -1667,8 +1827,8 @@ function submitSata(){
   const q = state.questions[state.index];
   const chosen = Array.from(state.selectedSata).sort();
   const correctSet = q.correct.slice().sort();
-  const correctFlag = JSON.stringify(chosen)===JSON.stringify(correctSet);
-  recordAnswer(q, correctFlag, chosen);
+  const status = JSON.stringify(chosen)===JSON.stringify(correctSet) ? "correct" : "incorrect";
+  recordAnswer(q, status, chosen);
   if(state.feedbackMode==="immediate"){
     document.querySelectorAll("#optionsWrap .opt").forEach(btn=>{
       btn.classList.add("locked");
@@ -1679,11 +1839,51 @@ function submitSata(){
       else if(isCorrectKey && !wasChosen) btn.classList.add("missed");
       else if(!isCorrectKey && wasChosen) btn.classList.add("incorrect");
     });
-    renderFeedback(q, correctFlag, chosen.join(", "));
+    renderFeedback(q, status);
   } else {
     document.querySelectorAll("#optionsWrap .opt").forEach(btn=>btn.classList.add("locked"));
     renderDeferredFeedback();
   }
+}
+
+function skipQuestion(){
+  if(state.locked) return;
+  state.locked = true;
+  const q = state.questions[state.index];
+  recordAnswer(q, "skipped", null);
+  document.querySelectorAll("#optionsWrap .opt").forEach(btn=>btn.classList.add("locked"));
+  const isLast = state.index === state.questions.length-1;
+  document.getElementById("feedbackZone").innerHTML = `
+    <div class="feedback-banner" style="background:var(--gold-100);color:var(--gold);">
+      <span class="stamp">⏭ SKIPPED</span>
+      <span>No points for this one — worth 0. Correct answer isn't shown, but you can review it later.</span>
+    </div>
+    ${navRow(isLast)}
+  `;
+}
+
+function navRow(isLast){
+  const remaining = state.questions.length - state.answers.length;
+  return `
+    <div class="nav-row">
+      <button class="btn secondary" onclick="goHome()">Exit to dashboard</button>
+      <div style="display:flex;gap:8px;">
+        ${!isLast ? `<button class="btn secondary" style="border-color:var(--incorrect);color:var(--incorrect);" onclick="finishTestNow()">Finish test now (${remaining} left → skipped)</button>` : ""}
+        <button class="btn" onclick="nextQuestion()">${isLast? "See results →" : "Next question →"}</button>
+      </div>
+    </div>`;
+}
+
+function finishTestNow(){
+  const remaining = state.questions.length - state.answers.length;
+  if(remaining > 0 && !confirm(`Finish now? The remaining ${remaining} question${remaining>1?"s":""} will be marked as skipped (0 points each).`)) return;
+  for(let i=state.answers.length; i<state.questions.length; i++){
+    const q = state.questions[i];
+    state.answers.push({qId:q.id, status:"skipped", selected:null, subtopic:q.subtopic, concept:q.explain.concept, category:q.category});
+  }
+  state.sessionTotal += remaining;
+  renderSessionScore();
+  showResults();
 }
 
 function renderDeferredFeedback(){
@@ -1693,26 +1893,24 @@ function renderDeferredFeedback(){
       <span class="stamp">RECORDED</span>
       <span>Answer saved — you'll see correct answers and rationales in your full review after this test.</span>
     </div>
-    <div class="nav-row">
-      <button class="btn secondary" onclick="goHome()">Exit to dashboard</button>
-      <button class="btn" onclick="nextQuestion()">${isLast? "See results →" : "Next question →"}</button>
-    </div>
+    ${navRow(isLast)}
   `;
 }
 
-function recordAnswer(q, correctFlag, selected){
-  state.answers.push({qId:q.id, correctFlag, selected, subtopic:q.subtopic, concept:q.explain.concept, category:q.category});
-  state.sessionTotal++; if(correctFlag) state.sessionCorrect++;
+function recordAnswer(q, status, selected){
+  state.answers.push({qId:q.id, status, selected, subtopic:q.subtopic, concept:q.explain.concept, category:q.category});
+  state.sessionTotal++; if(status==="correct") state.sessionCorrect++;
   renderSessionScore();
 }
 
-function renderFeedback(q, correctFlag, chosenLabel){
+function renderFeedback(q, status){
+  const correctFlag = status==="correct";
   const wrongList = Object.entries(q.explain.wrong||{}).map(([k,txt])=>
     `<div class="why-wrong-item"><b>${k}</b>${txt}</div>`).join("");
   const isLast = state.index === state.questions.length-1;
   const html = `
     <div class="feedback-banner ${correctFlag?"good":"bad"}">
-      <span class="stamp">${correctFlag?"✓ CORRECT":"✗ INCORRECT"}</span>
+      <span class="stamp">${correctFlag?"✓ CORRECT (+2)":"✗ INCORRECT (−0.5)"}</span>
       <span>${correctFlag? "Nice — that's the concept locked in." : "Let's break down what was missed."}</span>
     </div>
     <div class="explain">
@@ -1729,10 +1927,7 @@ function renderFeedback(q, correctFlag, chosenLabel){
         <div class="quickcheck"><span class="lightning">⚡</span><span>${q.explain.quick}</span></div>
       </div>
     </div>
-    <div class="nav-row">
-      <button class="btn secondary" onclick="goHome()">Exit to dashboard</button>
-      <button class="btn" onclick="nextQuestion()">${isLast? "See results →" : "Next question →"}</button>
-    </div>
+    ${navRow(isLast)}
   `;
   document.getElementById("feedbackZone").innerHTML = html;
 }
@@ -1744,12 +1939,13 @@ function nextQuestion(){
 
 function showResults(){
   state.view="results";
-  const total = state.answers.length;
-  const correct = state.answers.filter(a=>a.correctFlag).length;
-  const incorrect = total - correct;
+  const total = state.questions.length;
+  const correct = state.answers.filter(a=>a.status==="correct").length;
+  const incorrect = state.answers.filter(a=>a.status==="incorrect").length;
+  const skipped = state.answers.filter(a=>a.status==="skipped").length;
   const pct = total ? Math.round((correct/total)*100) : 0;
 
-  // Weighted scoring: +2 per correct, -0.5 per incorrect
+  // Weighted scoring: +2 per correct, -0.5 per incorrect, 0 per skipped
   const weightedScore = Math.round((correct*2 - incorrect*0.5) * 10) / 10;
   const weightedMax = total*2;
 
@@ -1761,32 +1957,35 @@ function showResults(){
 
   const byCat = {};
   state.questions.forEach((q,i)=>{
-    byCat[q.category] = byCat[q.category] || {correct:0,total:0};
+    byCat[q.category] = byCat[q.category] || {correct:0,total:0,skipped:0};
     byCat[q.category].total++;
-    if(state.answers[i] && state.answers[i].correctFlag) byCat[q.category].correct++;
+    const a = state.answers[i];
+    if(a && a.status==="correct") byCat[q.category].correct++;
+    if(a && a.status==="skipped") byCat[q.category].skipped++;
   });
   const catRows = Object.entries(byCat).map(([key,v])=>{
     const c = CAT[key];
     const p = Math.round((v.correct/v.total)*100);
     return `<div class="weight-row">
-      <div class="weight-label">${c.label}</div>
+      <div class="weight-label">${c.label}${v.skipped? `<div class="mono" style="font-size:10px;color:var(--gold);">${v.skipped} skipped</div>`:""}</div>
       <div class="weight-bar-track"><div class="weight-bar-fill" style="width:${p}%;background:${c.color}"></div></div>
       <div class="weight-pct mono">${p}%</div>
       <div class="weight-cov mono">${v.correct}/${v.total}</div>
     </div>`;
   }).join("");
 
-  // Full per-question review — every question, not just missed ones
+  // Full per-question review — every question, including skipped
+  const statusIcon = {correct:"✓", incorrect:"✗", skipped:"⏭"};
   const reviewHtml = state.questions.map((q,i)=>{
     const a = state.answers[i];
-    const ok = a && a.correctFlag;
+    const status = a ? a.status : "skipped";
     const wrongList = Object.entries(q.explain.wrong||{}).map(([k,txt])=>
       `<div class="why-wrong-item"><b>${k}</b>${txt}</div>`).join("");
-    const yourAnswer = a ? (Array.isArray(a.selected) ? a.selected.join(", ") : a.selected) : "—";
+    const yourAnswer = (a && a.selected!=null) ? (Array.isArray(a.selected) ? a.selected.join(", ") : a.selected) : "— (skipped)";
     const correctAnswer = Array.isArray(q.correct) ? q.correct.join(", ") : q.correct;
     return `
     <details class="missed-item">
-      <summary><span>${ok?"✓":"✗"} ${q.subtopic} — ${q.explain.concept}</span><span class="arrow">›</span></summary>
+      <summary><span>${statusIcon[status]} ${q.subtopic} — ${q.explain.concept}</span><span class="arrow">›</span></summary>
       <p class="stem" style="font-size:14px;">${q.stem}</p>
       <p style="font-size:12.5px;color:var(--ink-soft);margin:0 0 10px;" class="mono">Your answer: ${yourAnswer} &nbsp;·&nbsp; Correct: ${correctAnswer}</p>
       <ul class="bullets">${q.explain.why.map(w=>`<li>${w}</li>`).join("")}</ul>
@@ -1798,7 +1997,7 @@ function showResults(){
   document.getElementById("main").innerHTML = `
     <div class="card">
       <div class="score-hero"><span class="score-big" style="color:${weightedScore>=weightedMax*0.7?'var(--correct)':weightedScore>=weightedMax*0.5?'var(--gold)':'var(--incorrect)'}">${weightedScore}</span><span class="score-sub">of ${weightedMax} pts — ${state.quizTitle}</span></div>
-      <p class="mono" style="font-size:13px;color:var(--ink-soft);margin:2px 0 0;">${correct} of ${total} correct (${pct}% accuracy) &nbsp;·&nbsp; scoring: +2 per correct, −0.5 per incorrect</p>
+      <p class="mono" style="font-size:13px;color:var(--ink-soft);margin:2px 0 0;">${correct} correct · ${incorrect} incorrect · ${skipped} skipped &nbsp;(${pct}% accuracy) &nbsp;·&nbsp; scoring: +2 correct, −0.5 incorrect, 0 skipped</p>
       <div id="saveStatus"><span class="save-status off">Saving...</span></div>
       <div class="cta-row">
         <button class="btn" onclick="state.quizKey && state.quizKey.startsWith('full-') ? startFullTest(parseInt(state.quizKey.split('-')[1])) : startTopicQuiz(state.quizKey)">Retake</button>
@@ -1817,7 +2016,7 @@ function showResults(){
 
   const missedSummary = state.questions
     .map((q,i)=>({q,a:state.answers[i]}))
-    .filter(x=>x.a && !x.a.correctFlag)
+    .filter(x=>x.a && x.a.status==="incorrect")
     .map(({q})=>({subtopic:q.subtopic, concept:q.explain.concept}));
 
   const record = {
@@ -1829,6 +2028,7 @@ function showResults(){
     score_pct: pct,
     correct_count: correct,
     total_count: total,
+    skipped_count: skipped,
     weighted_score: weightedScore,
     weighted_max: weightedMax,
     category_breakdown: byCat,
