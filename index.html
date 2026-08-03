@@ -56,6 +56,24 @@
   .brand-mark{font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:19px;color:var(--teal-900);}
   .brand-sub{font-family:'IBM Plex Mono',monospace;font-size:11px;letter-spacing:.08em;color:var(--ink-soft);}
   .create-test-btn{flex:1;max-width:280px;text-align:center;}
+  .topbar-right{margin-left:auto;display:flex;align-items:center;gap:14px;flex-wrap:wrap;}
+  .concept-bullets li{display:flex;justify-content:space-between;align-items:baseline;gap:10px;flex-wrap:wrap;}
+  .explain-btn{
+    flex-shrink:0;background:none;border:none;color:var(--blue);font-size:11px;font-weight:600;
+    padding:0;text-decoration:underline;font-family:'IBM Plex Sans',sans-serif;white-space:nowrap;
+  }
+  .concept-detail-tag{
+    display:inline-flex;align-items:center;gap:6px;font-size:11px;font-family:'IBM Plex Mono',monospace;
+    padding:3px 9px;border-radius:6px;margin-bottom:14px;color:#fff;
+  }
+  .concept-detail-point{font-size:17px;line-height:1.5;font-weight:600;margin:0 0 18px;font-family:'Space Grotesk',sans-serif;}
+  .concept-detail-body{font-size:14.5px;line-height:1.7;color:var(--ink);}
+  .concept-detail-body p{margin:0 0 14px;}
+  .concept-example{
+    background:var(--paper);border-left:3px solid var(--teal-600);border-radius:0 8px 8px 0;
+    padding:14px 16px;margin:16px 0;font-size:13.5px;line-height:1.6;
+  }
+  .concept-example .ex-label{font-family:'IBM Plex Mono',monospace;font-size:10.5px;color:var(--teal-900);font-weight:600;text-transform:uppercase;letter-spacing:.05em;display:block;margin-bottom:6px;}
 
   /* ---------- Custom test modal ---------- */
   .custom-test-modal{max-width:600px;max-height:85vh;overflow-y:auto;}
@@ -302,8 +320,10 @@
       <span class="brand-mark">NCLEX</span><span class="brand-sub">PREP LAB</span>
     </div>
     <button class="btn create-test-btn" onclick="openCustomTestModal()">✎ Create Your Own Test</button>
-    <div class="account-widget" id="accountWidget"></div>
-    <div class="session-score mono" id="sessionScore">0 / 0 correct</div>
+    <div class="topbar-right">
+      <div class="session-score mono" id="sessionScore">0 / 0 correct this session</div>
+      <div class="account-widget" id="accountWidget"></div>
+    </div>
   </header>
 
   <div class="auth-overlay" id="customTestOverlay" style="display:none;">
@@ -394,8 +414,8 @@
    Security (RLS) policy on the table (see setup SQL provided separately),
    which allows INSERT but not SELECT for anonymous requests.
    ========================================================================= */
-const SUPABASE_URL = "https://qigjnloopmyaguhupzzh.supabase.co";       // e.g. "https://abcdefgh.supabase.co"
-const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFpZ2pubG9vcG15YWd1aHVwenpoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODU3Mjc0NDEsImV4cCI6MjEwMTMwMzQ0MX0._hoiYmJL4CInio669n-Qzi3pwDR8VmRarYoO04IusKQ";      // the long "anon public" key
+const SUPABASE_URL = "YOUR_SUPABASE_PROJECT_URL";       // e.g. "https://abcdefgh.supabase.co"
+const SUPABASE_ANON_KEY = "YOUR_SUPABASE_ANON_KEY";      // the long "anon public" key
 
 let sbClient = null;
 const supabaseConfigured = !SUPABASE_URL.startsWith("YOUR_") && !SUPABASE_ANON_KEY.startsWith("YOUR_");
@@ -846,6 +866,166 @@ const KEY_CONCEPTS = {
     "Fluid volume deficit: tachycardia + hypotension + dry mucous membranes + concentrated urine + poor skin turgor — pulses are weak/thready, not bounding."
   ]
 };
+
+/* =========================================================================
+   CONCEPT_DETAILS — deep-dive write-ups for the "Explain" button on each
+   Key Concepts bullet. Indexed to match KEY_CONCEPTS[catKey][i] by position.
+   A missing entry (or null) shows a graceful "not written yet" fallback —
+   this is populated incrementally, category by category.
+   ========================================================================= */
+const CONCEPT_DETAILS = {
+  moc: [
+    { // 0
+      body: `<p>Delegation isn't a single yes/no decision — it's five separate checks, and missing any one of them is what actually causes delegation-related errors on the exam and in practice.</p>
+             <p><b>Right Task</b> — is this task even delegable in general? Assessment, teaching, evaluation, and any task requiring nursing judgment are never delegable, regardless of who's available.</p>
+             <p><b>Right Circumstance</b> — is this task appropriate for THIS client right now? A stable client's vital signs are delegable; the same task on a client who just returned from surgery with unstable vitals is not.</p>
+             <p><b>Right Person</b> — does the person you're delegating to have the training and competency for this specific task? Delegation isn't just "down" to UAP — it also covers what an RN delegates to an LPN.</p>
+             <p><b>Right Direction/Communication</b> — did you give clear, specific instructions (what to do, what to report back, by when)? Vague delegation ("keep an eye on him") sets the delegate up to fail.</p>
+             <p><b>Right Supervision/Evaluation</b> — do you check back on the outcome? Delegating a task doesn't transfer your accountability for the result — you still own it.</p>`,
+      example: `An RN delegates ambulation to a UAP for a client 2 days post-op hip replacement. Right Task (routine, no judgment needed) ✓. Right Circumstance (client assessed stable) ✓. Right Person (UAP trained in ambulation assistance) ✓. Right Direction (RN specifies "ambulate to the door and back, call me if he reports dizziness") ✓. Right Supervision (RN checks in after and asks how it went, documents) ✓. If the RN skips that last step and never follows up, the delegation itself was fine — the supervision failed, and the RN remains accountable either way.` },
+    { // 1
+      body: `<p>The exam tests this constantly with "which client would you assign to the UAP" questions, and the trap is almost always the same: a task that SOUNDS routine but is attached to a client who isn't stable, or a task that sounds simple but actually requires judgment.</p>
+             <p>UAP scope is defined by the nature of the task itself, not by how "easy" it looks. Taking a blood pressure is mechanically simple — but interpreting whether that blood pressure is dangerous requires a nurse. That's why "measure vital signs" is delegable but "assess the client" never is, even though both might involve a stethoscope and a cuff.</p>
+             <p>A simple filter that works for almost every NCLEX delegation question: does this task require the person doing it to notice something is wrong and decide what to do about it? If yes, it's not delegable to a UAP. If the task is purely mechanical with a predictable, already-anticipated outcome, it likely is.</p>`,
+      example: `Delegable: "Please record this client's intake and output every time you're in the room." Not delegable: "Let me know if you think his output looks off." The first is data collection with no judgment call. The second requires knowing what "off" means clinically — that's an assessment, and it stays with the RN even though it sounds like a small ask.` },
+    { // 2
+      body: `<p>LPN/LVN scope sits in between UAP and RN, and the exam usually tests it by giving you two similar-looking clients and asking which one the LPN should get.</p>
+             <p>LPNs can generally: administer most routine medications (oral, IM, subcutaneous — IV push is more restricted and varies by state), perform reinforcement teaching using material the RN already introduced, provide wound care per an established protocol, and care for clients whose condition is stable and whose trajectory is predictable.</p>
+             <p>What stays with the RN regardless of how "busy" the unit is: the initial admission assessment, developing the plan of care, teaching a client something for the first time, and any client who is unstable, deteriorating, or has an unpredictable clinical picture. The RN can always do everything an LPN can do — the restriction only runs one direction.</p>`,
+      example: `Two clients need attention: one is 3 days post-op with a routine dressing change ordered per protocol, vitals stable. The other was just admitted with new chest pain and hasn't been assessed yet. The LPN takes the first client. The second requires RN-level clinical judgment to determine what's happening and what to do about it — that can't wait for or be handed to the LPN.` },
+    { // 3
+      body: `<p>ABC prioritization (Airway, Breathing, Circulation) is the single most heavily tested prioritization framework on the NCLEX, and it exists because it mirrors real physiological urgency: a client can die from an airway problem in minutes, while most other issues — even significant pain or important teaching — allow much more time.</p>
+             <p>The trap on these questions is usually an emotionally compelling distractor: a client who is crying, a family member who is anxious, a client requesting pain medication. These pull your attention, but none of them are immediately life-threatening. The correct answer is almost always the client whose airway, breathing, or circulation is acutely compromised — stridor, absent breath sounds, no pulse, active hemorrhage.</p>
+             <p>Once ABC is ruled out as a factor across your options, THEN other frameworks like Maslow's hierarchy become the tiebreaker.</p>`,
+      example: `Four clients need the nurse: one is requesting a warm blanket, one has new-onset stridor, one is scheduled for discharge teaching, one wants to know when lunch is served. Despite none of these being explicitly labeled "emergency," stridor signals a potentially closing airway — that client is assessed first, without exception.` },
+    { // 4
+      body: `<p>Maslow's hierarchy is the prioritization tiebreaker you reach for once you've already ruled out any ABC (airway/breathing/circulation) concerns among your options. It orders human needs from most fundamental to most abstract: Physiological → Safety → Love/Belonging → Esteem → Self-actualization.</p>
+             <p>On the exam, this shows up as choosing between needs that are all "important" but not all equally urgent. A client's need for oxygen or nutrition (physiological) outranks a client's need to feel safe from falling (safety), which outranks a client's need for social connection or family visits (belonging), which outranks concerns about body image or self-esteem, which outranks a client's interest in personal growth or self-actualization goals.</p>
+             <p>The most common test-writer trick: dressing up a lower-tier need in urgent-sounding language. A client who is "very anxious" about an upcoming procedure sounds pressing, but anxiety management (safety/psychological) still yields to a client with an oxygenation problem (physiological).</p>`,
+      example: `Client A is short of breath with an oxygen saturation of 88%. Client B is worried about affording medications after discharge. Both are legitimate concerns, but A's physiological need for oxygenation is addressed first — B's concern, while real, sits at the safety/security level of the hierarchy.` },
+    { // 5
+      body: `<p>This is one of the most frequently misunderstood roles on the exam. Students often assume "the nurse educates the client about the procedure," but that's actually the provider's legal responsibility — explaining the diagnosis, the procedure, its risks, benefits, and alternatives.</p>
+             <p>The nurse's role is narrower and just as important: confirming the client actually understands what they were told, making sure all their questions were answered, and then witnessing the signature. If a client says "I don't really understand why I need this" right before signing, the nurse's job is to STOP and notify the provider — not to fill in the explanation themselves, even if the nurse knows the answer. Doing so blurs a legal boundary and can undermine the validity of the consent.</p>
+             <p>This distinction (provider explains vs. nurse verifies) shows up constantly in "what is the nurse's best action" questions about pre-op consent.</p>`,
+      example: `A client says, "The doctor mentioned something about bleeding risk but I don't really get it," moments before a scheduled procedure. The correct nursing action isn't to explain bleeding risk — it's to notify the surgeon that the client has unanswered questions before the consent is finalized.` },
+    { // 6
+      body: `<p>Advance directives exist specifically for situations where a client cannot speak for themselves — which means their power is strongest exactly when it's most tempting for someone else (usually a well-meaning family member) to try to override it.</p>
+             <p>A properly executed advance directive (living will, healthcare proxy designation) reflects decisions the client made while competent, about exactly this kind of situation. Family members, no matter how close or well-intentioned, cannot legally override a valid directive — their role is to help ensure it's honored, not to substitute their own preference for the client's documented one.</p>
+             <p>The one nuance worth knowing: if there's a genuine question about whether the directive is valid, current, or actually applies to the situation at hand, that's when the ethics committee or legal counsel gets involved — not simply because family disagrees with what it says.</p>`,
+      example: `An unconscious client has a valid living will stating no mechanical ventilation. The family, present and distressed, asks staff to intubate anyway. The correct action is to honor the living will and notify the provider of the client's documented wishes — the family's request, however understandable emotionally, does not override it.` },
+    { // 7
+      body: `<p>"Minimum necessary" is the HIPAA principle that trips people up because it feels almost too strict — but the logic is simple: your access to a client's health information should be limited to exactly what you need for YOUR specific role in THEIR specific care, nothing more.</p>
+             <p>This means even a nurse working at the same hospital, on the same floor, or who knows the client personally has no automatic right to look up their chart unless they are actually involved in that client's care right now. Curiosity — even well-intentioned curiosity ("I just wanted to see how she's doing") — is a violation, because "wanting to know" isn't the same as "needing to know for care."</p>
+             <p>This principle is why hospitals audit chart access logs, and why "I didn't share the information with anyone, I just looked" is not a defense — the access itself is the violation, independent of whether the information was ever disclosed further.</p>`,
+      example: `A nurse recognizes a name in the admission list as a former coworker. Even without any intention of gossiping, opening that chart just to see what happened is a minimum-necessary violation — the nurse has no care-related reason to be in that record.` },
+    { // 8
+      body: `<p>This sequence gets tested constantly because the instinct many students have is backwards: they want to document or report FIRST. But nothing matters more in the first sixty seconds after an error than making sure the client is actually safe.</p>
+             <p>Step 1 — Assess and stabilize the client. Check vital signs, watch for the specific adverse effects that matter for whatever was given (or missed). Step 2 — Notify the provider, since orders may need to change based on what happened. Step 3 — Document the objective facts in the client's chart: what happened, what was assessed, what was done about it. Step 4 — Complete an incident report as a SEPARATE document, through the facility's internal quality/safety system.</p>
+             <p>The detail that trips people up most: the incident report itself is never referenced in the client's chart ("incident report filed" should never appear in chart documentation) — it's an internal risk-management tool, not part of the clinical record.</p>`,
+      example: `A client receives a double dose of a scheduled medication 20 minutes ago. The nurse's first action is assessing the client for adverse effects — not calling the pharmacy, not charting, and not filling out paperwork. Safety first, every time.` },
+    { // 9
+      body: `<p>Just Culture is a specific, deliberate alternative to the old "blame and punish" model of handling errors — and it exists because punishing every error, regardless of cause, makes staff hide mistakes instead of reporting them, which makes patients LESS safe overall.</p>
+             <p>The key distinction: human error and system failures (a nurse who made an honest mistake within a flawed process) get reviewed to fix the SYSTEM, without punishing the individual who happened to be the one who caught the flaw. Reckless behavior (deliberately skipping a safety check, working impaired, ignoring a known risk) is different — that still warrants individual accountability.</p>
+             <p>The single most important takeaway for the exam: a nurse who self-reports a near-miss in good faith should never be punished for that report, even if the near-miss reveals they made a mistake. Punishing the reporter teaches everyone else to stop reporting.</p>`,
+      example: `A nurse catches, and reports, that they nearly gave a medication to the wrong client due to two similar last names. Under Just Culture, this triggers a system-level review (why did the mix-up almost happen? better ID verification needed?) — not disciplinary action against the reporting nurse.` },
+    { // 10
+      body: `<p>Root cause analysis (RCA) is a formal, structured investigation process triggered after a sentinel event, and its defining feature is that it's forward-looking and systems-focused rather than backward-looking and blame-focused.</p>
+             <p>The process asks "what allowed this to happen?" repeatedly (often literally "why? why? why?" — the "5 Whys" technique) until it surfaces underlying systemic contributors: unclear protocols, inadequate staffing, confusing equipment design, poor handoff communication — rather than stopping at "Nurse X made a mistake."</p>
+             <p>This matters on the exam because questions often ask you to identify the PURPOSE of an RCA, and the correct answer is always about prevention and system improvement, never about identifying who to discipline.</p>`,
+      example: `After a wrong-site surgery, an RCA doesn't just note "the surgeon operated on the wrong knee." It traces back further: was the surgical site marking process followed? Was the time-out rushed? Was there a distraction in the OR? The findings drive a process change (e.g., a stricter time-out requirement), not a single person's punishment.` },
+    { // 11
+      body: `<p>This is the classic tension between two ethical principles: autonomy (the client's right to make their own decisions about their own body) and beneficence (the provider's duty to act in the client's best interest as the provider sees it).</p>
+             <p>For a client who has decision-making capacity, autonomy wins — even when the nurse or provider strongly disagrees with the choice, and even when the nurse believes the client is making a mistake. The nurse's job in that moment is to make sure the refusal is truly informed (the client understands the risks of refusing), document that thoroughly, and notify the provider — not to pressure, guilt, or override the client.</p>
+             <p>This only shifts if the client's capacity itself is genuinely in question (e.g., altered mental status, a formal capacity evaluation showing impairment) — capacity, not simply "the nurse disagrees," is what changes the calculus.</p>`,
+      example: `A client with a healing wound infection refuses further IV antibiotics after understanding the risk of the infection worsening. The nurse believes continuing antibiotics is clearly the better choice. The correct action is still to respect the refusal, document the informed nature of it, and continue offering education and support — not to administer the antibiotic anyway.` },
+    { // 12
+      body: `<p>DNR (Do Not Resuscitate) is one of the most commonly misunderstood orders in nursing, and the exam tests the misunderstanding directly: many people assume DNR means "don't treat this client" or "comfort care only." It doesn't.</p>
+             <p>A DNR order specifically and only means: if this client's heart stops or they stop breathing, do not perform CPR, do not defibrillate, do not intubate for the arrest. Everything else — pain medication, antibiotics, wound care, nutrition, IV fluids, even surgery if appropriate — continues exactly as it would for any other client, unless there are SEPARATE orders limiting those specific treatments.</p>
+             <p>This distinction matters practically: a DNR client who develops a treatable infection still gets antibiotics. A DNR client in pain still gets pain medication. DNR is narrowly about the resuscitation event, not a blanket statement about the client's overall care plan.</p>`,
+      example: `A client with a DNR order goes into cardiac arrest. The nurse does not perform CPR, per the order. Ten minutes earlier, that same client received their scheduled pain medication and wound care exactly as ordered — the DNR status had no bearing on that care at all.` },
+    { // 13
+      body: `<p>Negligence (or malpractice, when it involves a professional) is a specific legal concept with four required elements — and the exam sometimes tests this by asking what's MISSING from a scenario, since all four must be present for a negligence claim to succeed.</p>
+             <p><b>Duty</b> — the nurse had a professional obligation to the client (this is almost always present once a nurse-client relationship exists). <b>Breach</b> — the nurse's actions fell below the accepted standard of care (what a reasonably prudent nurse would have done in the same situation). <b>Causation</b> — the breach actually caused the harm (not just happened around the same time). <b>Damages</b> — actual harm resulted.</p>
+             <p>A scenario with an error but NO resulting harm (a caught near-miss, for example) is missing the "damages" element — so while it may still be a serious safety event worth investigating internally, it doesn't meet the legal definition of negligence.</p>`,
+      example: `A nurse gives a medication 30 minutes late due to a busy shift, and the client experiences no ill effects from the delay. There was a duty and arguably a breach, but without any resulting harm (damages) or a clear causal link to an injury, this doesn't meet the legal bar for negligence — though it's still worth reflecting on and reporting as a process issue.` },
+    { // 14
+      body: `<p>This sequence matters because "the nurse thinks the assignment is unsafe" is not, by itself, a reason to simply refuse to work — that can constitute patient abandonment, which carries its own serious consequences. The correct path protects both the patient and the nurse's license.</p>
+             <p>Step 1 — Voice the concern clearly and specifically to the charge nurse or supervisor as soon as it's identified. Step 2 — Request a specific adjustment (fewer clients, additional support, reassignment of the highest-acuity client). Step 3 — If unresolved, complete a formal written objection (often called an "Assignment Despite Objection" or ADO form) per facility policy, creating a documented record of the concern. Step 4 — Throughout this entire process, continue providing safe care to assigned clients — walking off the unit at any point in this sequence is what turns a legitimate safety concern into abandonment.</p>`,
+      example: `An RN is assigned six high-acuity clients with no additional support available, which she believes is unsafe. She raises the concern with the charge nurse immediately, requests either a lighter assignment or a second nurse to help, and when neither is possible, completes a formal written objection — all while continuing to safely care for her assigned clients rather than leaving.` }
+  ],
+  sic: [
+    { // 0
+      body: `<p>Airborne precautions exist for organisms that travel on tiny particles (droplet nuclei) small enough to stay suspended in air and travel well beyond the 3-6 feet that droplet precautions account for — which is why airborne requires both a negative-pressure room (containing the air itself) and a fit-tested N95 or higher respirator (filtering what you breathe), not just a surgical mask.</p>
+             <p>The three classic airborne organisms — Tuberculosis, Measles, Varicella (chickenpox) — are worth memorizing as a set, since the exam tests recognition of the diagnosis followed by selection of the correct precaution category far more than it tests the mechanism itself.</p>
+             <p>A surgical mask does NOT provide airborne protection — it's designed to catch larger droplets, not the tiny particles airborne precautions are meant to contain. Using the wrong precaution level is a classic NCLEX distractor.</p>`,
+      example: `A client is admitted with a productive cough, night sweats, and suspected active pulmonary TB. The nurse implements airborne precautions: places the client in a negative-pressure room and wears a fit-tested N95 before entering — not a surgical mask, and not standard precautions alone.` },
+    { // 1
+      body: `<p>Droplet precautions cover organisms spread through larger respiratory droplets that don't travel far or stay suspended in air the way airborne particles do — generally settling within about 3 feet, sometimes cited up to 6 feet under newer guidance.</p>
+             <p>This is why a standard surgical mask is sufficient protection (unlike airborne, which needs an N95) — the droplets are too large and heavy to get through or around a surgical mask effectively at that distance, and they fall out of the air relatively quickly.</p>
+             <p>Classic droplet organisms to recognize: Influenza, Mumps, Rubella, Pertussis (whooping cough) — sometimes remembered with mnemonics grouping several respiratory illnesses together. The key exam skill is distinguishing these from the airborne trio (TB, Measles, Varicella), since mixing them up means choosing the wrong PPE.</p>`,
+      example: `A client is diagnosed with influenza during flu season. Staff and visitors wear a surgical mask within about 3 feet of the client; an N95 and negative-pressure room are not required, since influenza spreads via droplets, not airborne particles.` },
+    { // 2
+      body: `<p>Contact precautions address organisms spread through direct or indirect touch — skin-to-skin contact, or touching a contaminated surface and then touching your own face/mucous membranes. This requires a gown and gloves for anyone entering the room, protecting against transfer via hands and clothing.</p>
+             <p>The single most tested nuance here is Clostridioides difficile (C. diff): it forms spores that alcohol-based hand sanitizer does NOT kill. For C. diff specifically, hand hygiene must be soap and water — mechanical washing physically removes the spores, since no amount of alcohol gel will. This is one of the most common "gotcha" details on infection control questions.</p>
+             <p>Other classic contact-precaution organisms: MRSA and VRE (both antibiotic-resistant bacteria spread via contact, without the spore-specific hand hygiene requirement that C. diff has).</p>`,
+      example: `A client has confirmed C. diff colitis. Staff use gown and gloves for every room entry (contact precautions) and specifically wash hands with soap and water before and after — reaching for the alcohol-based sanitizer dispenser right outside the door would NOT adequately protect against C. diff spores.` },
+    { // 3
+      body: `<p>Standard precautions are the baseline infection control practices used for every single client, every single time, regardless of their diagnosis or presumed infection status. This includes hand hygiene, appropriate PPE based on anticipated exposure (not the diagnosis label), safe injection practices, and respiratory hygiene/cough etiquette.</p>
+             <p>The entire point of "standard" is that you can't always know a client's infectious status — someone might be incubating an illness, colonized without symptoms, or simply undiagnosed yet. Waiting for a confirmed diagnosis before applying basic precautions defeats the purpose.</p>
+             <p>Transmission-based precautions (airborne, droplet, contact) are ADDED on top of standard precautions for specific known or suspected conditions — they never replace standard precautions, which always apply underneath.</p>`,
+      example: `A nurse draws blood from a client with no known infections and one from a client with confirmed hepatitis C. Standard precautions (gloves, safe sharps handling, hand hygiene) apply identically to both — infectious status doesn't change the baseline practice, since the nurse can never be fully certain of any client's actual status.` },
+    { // 4
+      body: `<p>Fall prevention follows a "least restrictive first" philosophy: you exhaust lower-intervention options before ever considering a restraint, because restraints carry their own significant risks (injury, loss of dignity, muscle deconditioning, and legally/ethically require strict justification).</p>
+             <p>The typical escalation for a high-risk client: environmental fixes first (bed in lowest position, clutter-free path, adequate lighting, non-skid footwear), then monitoring aids (bed/chair exit alarms, increased rounding frequency), then more resource-intensive options (a bedside sitter). A restraint is considered only after these have been tried or are clearly insufficient — and even then requires a specific provider order, documented justification, and frequent reassessment.</p>`,
+      example: `An older adult client with dementia repeatedly attempts to climb out of bed unassisted. The nurse first tries a bed exit alarm, low bed position, and non-skid socks. Only if the client remains at serious, unmanageable risk despite these measures — and after those alternatives are documented as insufficient — would restraint even be considered.` },
+    { // 5
+      body: `<p>Restraints are legally and ethically treated as a serious intervention, not a convenience measure, which is why the requirements around them are strict and specific.</p>
+             <p>A restraint order must be time-limited (never open-ended, never "PRN" — each new episode of restraint needs its own fresh order), and requires frequent reassessment — commonly cited as approximately every 2 hours, though exact intervals vary by facility policy and restraint type — checking circulation, skin integrity, and whether the restraint is still genuinely necessary. Documentation must reflect all of this: what less-restrictive options were tried first, the ongoing justification, and the results of each reassessment.</p>
+             <p>The underlying principle: a restraint restricts a person's freedom of movement, which is a significant enough intervention that it needs continuous re-justification, not a "set it and forget it" order.</p>`,
+      example: `A client is placed in soft wrist restraints to prevent pulling at a central line, after less restrictive measures failed. The order specifies a time limit, and the nurse checks circulation, skin condition, and continued necessity roughly every 2 hours, documenting each check — rather than applying the restraint once and leaving it unaddressed for the rest of the shift.` },
+    { // 6
+      body: `<p>Two classic mnemonics that show up together on safety questions: RACE for the sequence of actions during a fire, and PASS for how to actually operate a fire extinguisher once you've reached the "Extinguish" step.</p>
+             <p><b>RACE:</b> Rescue anyone in immediate danger first → Alarm (activate the fire alarm) → Confine the fire (close doors to slow its spread) → Extinguish (if small and safely containable) or Evacuate (if not).</p>
+             <p><b>PASS:</b> Pull the pin → Aim at the base of the fire (not the flames themselves) → Squeeze the handle → Sweep side to side.</p>
+             <p>The critical ordering point on RACE: Rescue always comes before Alarm. A person in immediate danger is addressed before you even trigger the alarm — though in practice, especially with additional help nearby, these can sometimes happen in rapid succession.</p>`,
+      example: `A fire starts in a supply closet near an occupied client room. The nurse's first action is checking that the client isn't in immediate danger and helping them move away from the fire if needed (Rescue) — before pulling the fire alarm (Alarm), closing the supply closet door (Confine), and only attempting to extinguish it herself if it's small and she has a clear escape path.` },
+    { // 7
+      body: `<p>The traditional "Rights" of medication administration give you a checklist to run through before giving any medication, and each one maps to a specific verification: Right Client (two identifiers, checked against the MAR), Right Drug (matches the order), Right Dose, Right Route, Right Time, Right Documentation (charted immediately after, not before or long after), and Right Reason (the medication makes clinical sense for this client's condition).</p>
+             <p>The exam often tests this by describing an action and asking which "right" it demonstrates — for example, checking a client's wristband and asking them to state their name and date of birth is specifically verifying the Right Client, not "just being thorough" in a generic sense.</p>`,
+      example: `Before administering a scheduled medication, a nurse checks the client's wristband against the MAR and asks the client to state their name and date of birth. This action specifically confirms the Right Client — a separate check (comparing the medication label to the order) would confirm the Right Drug and Right Dose.` },
+    { // 8
+      body: `<p>The sequence after a needlestick injury prioritizes immediate physical first aid over documentation or reporting, because reducing the pathogen load at the exposure site in the first moments genuinely matters for infection risk.</p>
+             <p>Step 1 — Wash the area immediately with soap and water (this is the one universal first step regardless of what's known about the source). Step 2 — Report the exposure per facility protocol, which typically triggers a formal process. Step 3 — Undergo post-exposure evaluation, which may include baseline testing and, depending on the source's status (e.g., known HIV-positive), time-sensitive post-exposure prophylaxis.</p>
+             <p>The time-sensitivity point worth remembering: if the source is known to be HIV-positive, post-exposure prophylaxis is most effective when started very soon after exposure — often within hours — which is why reporting promptly (not "at the end of the shift") genuinely matters, not just as a formality.</p>`,
+      example: `A nurse sustains a needlestick after giving an injection. She immediately washes the site thoroughly with soap and water, then reports the exposure right away rather than finishing her medication pass first — since the source client's status is unknown and prompt evaluation preserves the option for timely prophylaxis if needed.` },
+    { // 9
+      body: `<p>The CLABSI (central line-associated bloodstream infection) prevention bundle is a set of evidence-based practices that, together, significantly reduce a serious and preventable complication — central lines bypass the skin's normal barrier function, creating a direct route for organisms into the bloodstream if any part of this bundle is skipped.</p>
+             <p>The bundle: hand hygiene before and after any line access, chlorhexidine-based skin antisepsis at the insertion site, strict sterile technique for dressing changes, and a daily, deliberate review of whether the line is still actually needed (since every additional day of an unnecessary line is added risk with no benefit).</p>
+             <p>That last element — daily necessity review — is often the one students forget, but it's a core, explicitly tested part of the bundle, not an afterthought.</p>`,
+      example: `A client has had a central line in place for 6 days. During rounds, the team specifically discusses whether the line is still clinically necessary, rather than simply continuing it by default — this daily review is as much a part of CLABSI prevention as the sterile dressing technique itself.` },
+    { // 10
+      body: `<p>The general principle for removing PPE (doffing) is to remove the most heavily contaminated items first, minimizing the chance that your hands (which are the primary means of contaminating yourself or spreading organisms further) transfer organisms onto cleaner surfaces or your own skin/face during the process.</p>
+             <p>Gloves are typically the most contaminated item (they've been in direct contact with the client and surfaces) and are removed first. The mask/respirator is often removed last, in part because it protects your airway right up until you're clear of the contaminated environment. Exact sequences can vary slightly by facility protocol, but the underlying logic — most contaminated first, protect your airway until the end — stays consistent.</p>`,
+      example: `After caring for a client on contact precautions, a nurse removes gloves first (most contaminated), followed by gown, then performs hand hygiene, and removes the mask last just before fully exiting — rather than removing the mask early and risking touching her face with still-gloved, contaminated hands.` },
+    { // 11
+      body: `<p>The three core radiation safety principles work together and are worth remembering as a set: Time (limit how long you're exposed), Distance (maximize how far you are from the source — radiation intensity drops off sharply with distance), and Shielding (use a barrier, like a lead apron, between you and the source).</p>
+             <p>These apply to any staff member involved in a procedure using ionizing radiation, not just radiology technologists — a nurse assisting with a portable X-ray or present during fluoroscopy is still subject to the same three principles.</p>`,
+      example: `A nurse assists with a portable chest X-ray at the bedside. She steps back and away from the direct beam path as much as the room allows (distance), wears a lead apron (shielding), and steps fully out of the room if the setup allows for a remote trigger (time) — rather than standing close by unnecessarily "just to help."` },
+    { // 12
+      body: `<p>Alarm fatigue happens when staff are exposed to so many alarms — many of them false or clinically insignificant — that they become desensitized and start silencing alarms reflexively without actually assessing what triggered them. This is a well-documented, serious patient safety hazard, not just an annoyance.</p>
+             <p>The risk: the one time an alarm reflects a genuinely urgent problem, a desensitized response means it might be silenced along with all the "noise" before anyone actually looks at the client. The correct habit, even on a unit with frequent alarms, is to assess the client and the cause every single time — not to assume based on pattern that "it's probably nothing."</p>`,
+      example: `A cardiac monitor alarm sounds for the fifth time in an hour on a busy unit. Rather than silencing it without looking, the nurse briefly checks the client and the monitor each time — because the fifth alarm has exactly the same chance of being clinically significant as the first one did.` },
+    { // 13
+      body: `<p>Two-identifier verification (typically full name plus date of birth, checked against the chart or armband — never room number, which can change) is required before medications, before procedures, and with extra rigor before blood transfusions, because the consequences of a mix-up scale with the risk of the intervention.</p>
+             <p>Blood transfusions get an additional layer: an independent double-check, meaning a second qualified staff member separately verifies the client's identity against the blood product label before it's hung — not simply confirming what the first nurse already checked, but independently re-verifying it themselves.</p>`,
+      example: `Before hanging a unit of blood, two nurses independently check the client's identity (name and date of birth) against both the blood bank label and the client's wristband, each doing their own verification rather than one nurse simply confirming what the other already found — this catches errors that a single check, however careful, might miss.` },
+    { // 14
+      body: `<p>Pre-operative hair removal, when needed, uses clipping rather than razor shaving specifically because a razor can cause microscopic nicks in the skin — and those tiny breaks in the skin barrier become entry points for bacteria, increasing surgical site infection risk.</p>
+             <p>Clipping removes hair without cutting the skin itself, and is typically done as close to the time of surgery as reasonably possible (rather than, say, the night before), further minimizing the window for bacterial colonization of any skin irritation before the procedure.</p>`,
+      example: `A client requires hair removal at the surgical site before an abdominal procedure. The pre-op team uses electric clippers rather than a razor, and performs this close to the actual surgery time — both choices specifically aimed at reducing surgical site infection risk from skin micro-trauma.` }
+  ]
+};
+
 
 /* Each question: {id, category, type:"single"|"sata", subtopic, stem,
    options:[{k,t}], correct: "A" | ["A","C"],
@@ -1680,7 +1860,7 @@ function renderRail(){
   }).join("");
 }
 function renderSessionScore(){
-  document.getElementById("sessionScore").textContent = `${state.sessionCorrect} / ${state.sessionTotal} correct`;
+  document.getElementById("sessionScore").textContent = `${state.sessionCorrect} / ${state.sessionTotal} correct this session`;
 }
 
 /* ---------- Performance tracking (for the "Your performance" star column) ---------- */
@@ -1765,17 +1945,49 @@ async function goHome(){
     </div>
     <div class="card">
       <h3>Key Concepts — quick review</h3>
-      <p style="font-size:13px;color:var(--ink-soft);margin:0 0 12px;">Condensed, high-yield concepts per category — good for a fast pre-test refresh. Tap a category to expand.</p>
+      <p style="font-size:13px;color:var(--ink-soft);margin:0 0 12px;">Condensed, high-yield concepts per category — good for a fast pre-test refresh. Tap a category to expand, or tap Explain on any point for the full write-up with examples.</p>
       ${CATEGORIES.map(c=>`
-        <details class="missed-item" style="margin-bottom:8px;">
+        <details class="missed-item" id="kc-details-${c.key}" style="margin-bottom:8px;">
           <summary><span><span class="dot" style="background:${c.color};display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:8px;"></span>${c.label}</span><span class="arrow">›</span></summary>
-          <ul class="bullets" style="margin-top:10px;">
-            ${(KEY_CONCEPTS[c.key]||[]).map(pt=>`<li>${pt}</li>`).join("")}
+          <ul class="bullets concept-bullets" style="margin-top:10px;">
+            ${(KEY_CONCEPTS[c.key]||[]).map((pt,i)=>`<li>${pt} <button class="explain-btn" onclick="showConceptDetail('${c.key}',${i})">Explain →</button></li>`).join("")}
           </ul>
         </details>
       `).join("")}
     </div>
   `;
+}
+
+function showConceptDetail(catKey, index){
+  state.view = "concept-detail";
+  const c = CAT[catKey];
+  const point = (KEY_CONCEPTS[catKey] || [])[index] || "";
+  const detail = (CONCEPT_DETAILS[catKey] || [])[index];
+
+  const bodyHtml = detail
+    ? `<div class="concept-detail-body">${detail.body}</div>
+       ${detail.example ? `<div class="concept-example"><span class="ex-label">⚡ Worked example</span>${detail.example}</div>` : ""}`
+    : `<div class="card" style="background:var(--gold-100);border-color:var(--gold);">
+         <p style="font-size:13.5px;margin:0;">The full deep-dive for this point hasn't been written up yet — it's being added in batches, category by category. Check back soon, or in the meantime the quick-review point above still holds and shows up throughout the question bank's rationales.</p>
+       </div>`;
+
+  document.getElementById("main").innerHTML = `
+    <button class="link-btn" style="margin-bottom:16px;font-size:13px;" onclick="goHome()">‹ Back to dashboard</button>
+    <span class="concept-detail-tag" style="background:${c.color}">${c.label}</span>
+    <p class="concept-detail-point">${point}</p>
+    ${bodyHtml}
+    <button class="btn secondary" style="margin-top:24px;" onclick="backToKeyConcepts('${catKey}')">‹ Back to Key Concepts</button>
+  `;
+  window.scrollTo(0,0);
+}
+
+async function backToKeyConcepts(catKey){
+  await goHome();
+  const el = document.getElementById("kc-details-"+catKey);
+  if(el){
+    el.open = true;
+    el.scrollIntoView({behavior:"smooth", block:"start"});
+  }
 }
 
 let pendingStart = null;
