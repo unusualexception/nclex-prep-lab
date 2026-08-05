@@ -157,11 +157,16 @@
   .auth-tab.active{color:var(--teal-900);border-bottom-color:var(--teal-900);}
   .auth-field{margin-bottom:12px;display:flex;flex-direction:column;gap:4px;}
   .auth-field label{font-size:11.5px;font-family:'IBM Plex Mono',monospace;color:var(--ink-soft);}
-  .auth-field input{
+  .auth-field input, .auth-field select, .auth-field textarea{
     border:1px solid var(--line);border-radius:7px;padding:9px 10px;font-size:13.5px;
-    font-family:'IBM Plex Sans',sans-serif;color:var(--ink);
+    font-family:'IBM Plex Sans',sans-serif;color:var(--ink);background:#fff;
   }
-  .auth-field input:focus{outline:none;border-color:var(--teal-600);}
+  .auth-field textarea{resize:vertical;min-height:90px;}
+  .auth-field input:focus, .auth-field select:focus, .auth-field textarea:focus{outline:none;border-color:var(--teal-600);}
+  .issue-context{font-size:11.5px;font-family:'IBM Plex Mono',monospace;background:var(--teal-100);color:var(--teal-900);border-radius:6px;padding:6px 10px;margin-bottom:12px;}
+  .issue-modal, .contact-modal{max-width:480px;}
+  .topbar-help-btn{font-size:12px;color:var(--ink-soft);background:none;border:none;font-family:'IBM Plex Sans',sans-serif;text-decoration:underline;cursor:pointer;}
+  .form-success{font-size:13px;color:var(--teal-600);text-align:center;padding:12px 0;}
   .auth-error{color:var(--incorrect);font-size:12px;margin:-4px 0 10px;min-height:14px;}
   .auth-guest-note{font-size:11.5px;color:var(--ink-soft);line-height:1.5;margin-top:14px;text-align:center;}
   .consent-row label{display:flex;align-items:flex-start;gap:8px;font-family:'IBM Plex Sans',sans-serif;font-size:12px;color:var(--ink-soft);cursor:pointer;line-height:1.45;}
@@ -334,6 +339,8 @@
     </div>
     <button class="btn create-test-btn" onclick="openCustomTestModal()">✎ Create Your Own Test</button>
     <div class="topbar-right">
+      <button class="topbar-help-btn" onclick="openIssueModal()">Report Issue</button>
+      <button class="topbar-help-btn" onclick="openContactModal()">Contact Us</button>
       <div class="session-score mono" id="sessionScore">0 / 0 correct this session</div>
       <div class="account-widget" id="accountWidget"></div>
     </div>
@@ -402,6 +409,43 @@
         <p><b>Your responsibility.</b> It is your responsibility as the student to independently verify clinical information, consult current and authoritative sources (your nursing program's curriculum, current clinical practice guidelines, and official NCSBN materials), and apply your own clinical judgment. This platform is a supplement to — not a replacement for — formal nursing education, clinical training, and official exam preparation resources.</p>
         <p>By creating an account or using this platform, you acknowledge and accept these terms.</p>
       </div>
+    </div>
+  </div>
+
+  <div class="auth-overlay" id="issueOverlay" style="display:none;">
+    <div class="auth-modal issue-modal">
+      <button class="auth-close" id="issueCloseBtn" aria-label="Close">×</button>
+      <h3 style="margin:0 0 4px;font-size:17px;">Report an Issue</h3>
+      <p style="font-size:12.5px;color:var(--ink-soft);margin:0 0 14px;">Found a wrong answer, a typo, or something that just isn't working right? Let us know below.</p>
+      <div id="issueContext" class="issue-context" style="display:none;"></div>
+      <div id="issueFormWrap">
+        <div class="auth-field">
+          <label>What's this about?</label>
+          <select id="issueCategory">
+            <option value="Question error">A question, answer, or rationale looks wrong</option>
+            <option value="App bug">Something in the app isn't working</option>
+            <option value="Other">Something else</option>
+          </select>
+        </div>
+        <div class="auth-field">
+          <label>Details</label>
+          <textarea id="issueDescription" placeholder="Tell us what happened, and where you saw it..."></textarea>
+        </div>
+        <div id="issueError" class="auth-error"></div>
+        <button type="button" class="btn" style="width:100%;" onclick="submitIssueReport()">Submit</button>
+      </div>
+      <div id="issueSuccess" class="form-success" style="display:none;">Thanks — your report was submitted. We appreciate you flagging it.</div>
+    </div>
+  </div>
+
+  <div class="auth-overlay" id="contactOverlay" style="display:none;">
+    <div class="auth-modal contact-modal">
+      <button class="auth-close" id="contactCloseBtn" aria-label="Close">×</button>
+      <h3 style="margin:0 0 14px;font-size:17px;">Contact Us</h3>
+      <p style="font-size:13.5px;color:var(--ink);line-height:1.6;margin:0 0 14px;">Questions, feedback, or anything else you'd like to reach us about — email us directly and we'll get back to you.</p>
+      <p style="text-align:center;margin:0;">
+        <a href="mailto:abc@xyz.com" class="mono" style="font-size:15px;color:var(--teal-600);font-weight:600;">abc@xyz.com</a>
+      </p>
     </div>
   </div>
 
@@ -2635,6 +2679,66 @@ function closeTermsModal(){
 }
 document.getElementById("termsCloseBtn").addEventListener("click", closeTermsModal);
 document.getElementById("termsOverlay").addEventListener("click", e=>{ if(e.target.id==="termsOverlay") closeTermsModal(); });
+
+function openIssueModal(){
+  document.getElementById("issueFormWrap").style.display = "block";
+  document.getElementById("issueSuccess").style.display = "none";
+  document.getElementById("issueError").textContent = "";
+  document.getElementById("issueDescription").value = "";
+  document.getElementById("issueCategory").value = "Question error";
+  const contextEl = document.getElementById("issueContext");
+  if(state.view==="quiz" && state.questions[state.index]){
+    contextEl.style.display = "block";
+    contextEl.textContent = `Reporting on: ${state.quizTitle} — question ${state.index+1} of ${state.questions.length} (${state.questions[state.index].id})`;
+  } else {
+    contextEl.style.display = "none";
+    contextEl.textContent = "";
+  }
+  document.getElementById("issueOverlay").style.display = "flex";
+}
+function closeIssueModal(){
+  document.getElementById("issueOverlay").style.display = "none";
+}
+async function submitIssueReport(){
+  const category = document.getElementById("issueCategory").value;
+  const description = document.getElementById("issueDescription").value.trim();
+  const errorEl = document.getElementById("issueError");
+  errorEl.textContent = "";
+  if(!description){
+    errorEl.textContent = "Please add a few details before submitting.";
+    return;
+  }
+  const inQuiz = state.view==="quiz" && state.questions[state.index];
+  const record = {
+    student_name: authState.user ? authState.user.name : (state.studentName && state.studentName.trim() ? state.studentName.trim() : "Guest"),
+    category,
+    description,
+    question_id: inQuiz ? state.questions[state.index].id : null,
+    context: inQuiz ? `${state.quizTitle} — question ${state.index+1} of ${state.questions.length}` : (state.quizTitle || null)
+  };
+  try{
+    if(sbClient){
+      const { error } = await sbClient.from("issue_reports").insert(record);
+      if(error) throw error;
+    }
+    document.getElementById("issueFormWrap").style.display = "none";
+    document.getElementById("issueSuccess").style.display = "block";
+  }catch(e){
+    console.error("Couldn't submit issue report.", e);
+    errorEl.textContent = "Something went wrong submitting this — please try again in a moment.";
+  }
+}
+document.getElementById("issueCloseBtn").addEventListener("click", closeIssueModal);
+document.getElementById("issueOverlay").addEventListener("click", e=>{ if(e.target.id==="issueOverlay") closeIssueModal(); });
+
+function openContactModal(){
+  document.getElementById("contactOverlay").style.display = "flex";
+}
+function closeContactModal(){
+  document.getElementById("contactOverlay").style.display = "none";
+}
+document.getElementById("contactCloseBtn").addEventListener("click", closeContactModal);
+document.getElementById("contactOverlay").addEventListener("click", e=>{ if(e.target.id==="contactOverlay") closeContactModal(); });
 
 async function boot(){
   document.getElementById("main").innerHTML = `<div class="card"><h3>Loading question bank…</h3></div>`;
