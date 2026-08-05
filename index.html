@@ -1922,7 +1922,7 @@ function renderRail(){
   const list = document.getElementById("railList");
   const note = document.getElementById("railNote");
   const bankSize = QUESTIONS.length;
-  note.innerHTML = `Weighted across all 8 categories per the NCSBN test plan. Each test currently pulls up to ${Math.min(105,bankSize)} questions.`;
+  note.innerHTML = `Weighted across all 8 categories per the NCSBN test plan. Each full length test currently pulls up to ${Math.min(105,bankSize)} questions.`;
   const regularBtns = Array.from({length:30},(_,i)=>i+1).map(n=>{
     const key = "full-"+n;
     const active = state.quizKey===key ? "active":"";
@@ -1930,7 +1930,10 @@ function renderRail(){
     const statusClass = prog ? (prog.status==="done" ? "done":"progress") : "";
     const label = prog && prog.status==="done" ? `${prog.score}%` : "";
     return `<button class="rail-btn ${active}" onclick="startFullTest(${n})">
-      <span class="id mono">TEST ${String(n).padStart(2,"0")}</span>
+      <span class="id mono" style="display:flex;flex-direction:column;line-height:1.35;">
+        <span style="font-size:8px;opacity:.65;letter-spacing:.05em;">FULL LENGTH</span>
+        <span style="font-size:11.5px;">TEST ${String(n).padStart(2,"0")}</span>
+      </span>
       <span style="display:flex;align-items:center;gap:6px;">
         <span class="mono" style="font-size:10.5px;opacity:.8;">${label}</span>
         <span class="status ${statusClass}"></span>
