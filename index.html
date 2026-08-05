@@ -57,7 +57,8 @@
   .brand-sub{font-family:'IBM Plex Mono',monospace;font-size:11px;letter-spacing:.08em;color:var(--ink-soft);}
   .create-test-btn{flex:1;max-width:280px;text-align:center;}
   .topbar-right{margin-left:auto;display:flex;align-items:center;gap:14px;flex-wrap:wrap;}
-  .concept-bullets li{display:flex;justify-content:space-between;align-items:baseline;gap:10px;flex-wrap:wrap;}
+  .concept-bullets li{display:flex;justify-content:space-between;align-items:baseline;gap:6px;flex-wrap:wrap;}
+  ul.bullets.concept-bullets li{margin-bottom:16px;}
   .explain-btn{
     flex-shrink:0;background:none;border:none;color:var(--blue);font-size:11px;font-weight:600;
     padding:0;text-decoration:underline;font-family:'IBM Plex Sans',sans-serif;white-space:nowrap;
@@ -163,6 +164,12 @@
   .auth-field input:focus{outline:none;border-color:var(--teal-600);}
   .auth-error{color:var(--incorrect);font-size:12px;margin:-4px 0 10px;min-height:14px;}
   .auth-guest-note{font-size:11.5px;color:var(--ink-soft);line-height:1.5;margin-top:14px;text-align:center;}
+  .consent-row label{display:flex;align-items:flex-start;gap:8px;font-family:'IBM Plex Sans',sans-serif;font-size:12px;color:var(--ink-soft);cursor:pointer;line-height:1.45;}
+  .consent-row input[type="checkbox"]{margin-top:2px;flex-shrink:0;}
+  .terms-modal{max-width:520px;}
+  .terms-body{max-height:52vh;overflow-y:auto;padding-right:6px;font-size:13px;line-height:1.65;color:var(--ink);}
+  .terms-body p{margin:0 0 12px;}
+  .terms-body p:last-child{margin-bottom:0;}
 
   /* ---------- ECG strip (signature element) ---------- */
   .ecg-strip{height:20px;background:var(--panel);border-bottom:1px solid var(--line);overflow:hidden;}
@@ -368,9 +375,30 @@
           <input id="authPassword" type="password" autocomplete="current-password" minlength="6" required>
         </div>
         <div id="authError" class="auth-error"></div>
+        <div class="auth-field consent-row" id="marketingConsentWrap" style="display:none;">
+          <label>
+            <input type="checkbox" id="authMarketingConsent">
+            <span>Send me occasional emails about new features, question bank updates, and study tips. You can unsubscribe anytime.</span>
+          </label>
+        </div>
         <button type="submit" class="btn" id="authSubmitBtn" style="width:100%;">Log in</button>
+        <p id="authTermsNote" style="display:none;font-size:11px;color:var(--ink-soft);text-align:center;margin:10px 0 0;line-height:1.5;">By creating an account, you agree to our <button type="button" class="link-btn" onclick="openTermsModal()">Terms &amp; Conditions</button>.</p>
       </form>
       <div class="auth-guest-note">No account needed to practice — close this and you'll continue as a guest. Guest results still save, just without a login to review them later.</div>
+    </div>
+  </div>
+
+  <div class="auth-overlay" id="termsOverlay" style="display:none;">
+    <div class="auth-modal terms-modal">
+      <button class="auth-close" id="termsCloseBtn" aria-label="Close">×</button>
+      <h3 style="margin:0 0 14px;font-size:17px;">Terms &amp; Conditions</h3>
+      <div class="terms-body">
+        <p><b>Independent study tool.</b> NCLEX Prep Lab is an independent practice resource and is not affiliated with, endorsed by, or connected to the National Council of State Boards of Nursing (NCSBN) or any official NCLEX-RN examination authority.</p>
+        <p><b>Accuracy of content.</b> Every question, answer, and rationale in this question bank has been carefully written and reviewed with the goal of being accurate and consistent with current NCLEX-RN test plan content. That said, nursing knowledge, medications, dosing, and clinical guidelines change over time, and despite our best efforts, this content may contain errors, omissions, or information that has since become outdated.</p>
+        <p><b>No warranty, no liability.</b> This platform and its content are provided "as is," for educational and self-assessment purposes only, with no warranty of accuracy, completeness, or fitness for any particular purpose. We make no guarantee that using this question bank will result in a passing NCLEX-RN score, and we assume no liability or obligation for any inaccuracies, errors, or omissions in the content, or for any outcome related to your NCLEX-RN examination, licensure, or academic progress.</p>
+        <p><b>Your responsibility.</b> It is your responsibility as the student to independently verify clinical information, consult current and authoritative sources (your nursing program's curriculum, current clinical practice guidelines, and official NCSBN materials), and apply your own clinical judgment. This platform is a supplement to — not a replacement for — formal nursing education, clinical training, and official exam preparation resources.</p>
+        <p>By creating an account or using this platform, you acknowledge and accept these terms.</p>
+      </div>
     </div>
   </div>
 
@@ -498,6 +526,8 @@ function setAuthMode(mode){
   document.getElementById("tabSignIn").classList.toggle("active", mode==="signin");
   document.getElementById("tabSignUp").classList.toggle("active", mode==="signup");
   document.getElementById("nameFieldWrap").style.display = mode==="signup" ? "flex":"none";
+  document.getElementById("marketingConsentWrap").style.display = mode==="signup" ? "flex":"none";
+  document.getElementById("authTermsNote").style.display = mode==="signup" ? "block":"none";
   document.getElementById("authSubmitBtn").textContent = mode==="signup" ? "Create account" : "Log in";
   document.getElementById("authError").textContent = "";
 }
@@ -518,8 +548,9 @@ async function handleAuthSubmit(evt){
   try{
     if(authMode==="signup"){
       if(!name){ throw new Error("Please enter your name."); }
+      const marketingConsent = document.getElementById("authMarketingConsent").checked;
       const { data, error } = await sbClient.auth.signUp({
-        email, password, options:{ data:{ full_name:name } }
+        email, password, options:{ data:{ full_name:name, marketing_consent:marketingConsent, marketing_consent_at: new Date().toISOString() } }
       });
       if(error) throw error;
       if(data.session){
@@ -2056,6 +2087,7 @@ async function goHome(){
         </details>
       `).join("")}
     </div>
+    <p style="font-size:11px;color:var(--ink-soft);text-align:center;margin:4px 0 0;">This question bank is independently written and reviewed for accuracy but may contain errors — <button class="link-btn" onclick="openTermsModal()">Terms &amp; Conditions</button></p>
   `;
 }
 
@@ -2558,6 +2590,15 @@ document.getElementById("quizOptionsCloseBtn").addEventListener("click", closeQu
 document.getElementById("quizOptionsOverlay").addEventListener("click", e=>{ if(e.target.id==="quizOptionsOverlay") closeQuizOptionsModal(); });
 document.getElementById("customTestCloseBtn").addEventListener("click", closeCustomTestModal);
 document.getElementById("customTestOverlay").addEventListener("click", e=>{ if(e.target.id==="customTestOverlay") closeCustomTestModal(); });
+
+function openTermsModal(){
+  document.getElementById("termsOverlay").style.display = "flex";
+}
+function closeTermsModal(){
+  document.getElementById("termsOverlay").style.display = "none";
+}
+document.getElementById("termsCloseBtn").addEventListener("click", closeTermsModal);
+document.getElementById("termsOverlay").addEventListener("click", e=>{ if(e.target.id==="termsOverlay") closeTermsModal(); });
 
 async function boot(){
   document.getElementById("main").innerHTML = `<div class="card"><h3>Loading question bank…</h3></div>`;
