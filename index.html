@@ -171,11 +171,14 @@
   .terms-body p{margin:0 0 12px;}
   .terms-body p:last-child{margin-bottom:0;}
 
-  /* ---------- ECG strip (signature element) ---------- */
-  .ecg-strip{height:20px;background:var(--panel);border-bottom:1px solid var(--line);overflow:hidden;}
-  .ecg-strip svg{display:block;width:200%;height:100%;animation:ecgmove 9s linear infinite;}
-  @keyframes ecgmove{from{transform:translateX(0)}to{transform:translateX(-50%)}}
-  @media (prefers-reduced-motion: reduce){ .ecg-strip svg{animation:none} }
+  /* ---------- Tagline marquee (was the ECG strip) ---------- */
+  .ecg-strip{height:26px;background:var(--panel);border-bottom:1px solid var(--line);overflow:hidden;display:flex;align-items:center;}
+  .tagline-track{display:flex;white-space:nowrap;animation:taglinemove 60s linear infinite;}
+  .tagline-group{display:flex;align-items:center;flex-shrink:0;}
+  .tagline-item{font-family:'IBM Plex Mono',monospace;font-size:11px;font-weight:600;letter-spacing:.03em;color:var(--teal-600);padding:0 16px;}
+  .tagline-sep{color:var(--teal-600);opacity:.4;font-size:10px;}
+  @keyframes taglinemove{from{transform:translateX(0)}to{transform:translateX(-50%)}}
+  @media (prefers-reduced-motion: reduce){ .tagline-track{animation:none} }
 
   /* ---------- Layout ---------- */
   .layout{display:flex;flex:1;min-height:0;}
@@ -419,10 +422,24 @@
   </div>
 
   <div class="ecg-strip" aria-hidden="true">
-    <svg viewBox="0 0 1000 40" preserveAspectRatio="none">
-      <path d="M0,20 L140,20 L160,20 L172,6 L184,34 L196,20 L220,20 L500,20 L640,20 L652,6 L664,34 L676,20 L700,20 L1000,20 M1000,20 L1140,20 L1160,20 L1172,6 L1184,34 L1196,20 L1220,20 L1500,20 L1640,20 L1652,6 L1664,34 L1676,20 L1700,20 L2000,20"
-            fill="none" stroke="#12786A" stroke-width="2"/>
-    </svg>
+    <div class="tagline-track">
+      <div class="tagline-group">
+        <span class="tagline-item">Clear the NCLEX-RN with confidence — your 8-week prep plan</span><span class="tagline-sep">♥</span>
+        <span class="tagline-item">Clear the NCLEX-RN with confidence — your 8-week prep plan</span><span class="tagline-sep">♥</span>
+        <span class="tagline-item">Clear the NCLEX-RN with confidence — your 8-week prep plan</span><span class="tagline-sep">♥</span>
+        <span class="tagline-item">Clear the NCLEX-RN with confidence — your 8-week prep plan</span><span class="tagline-sep">♥</span>
+        <span class="tagline-item">Clear the NCLEX-RN with confidence — your 8-week prep plan</span><span class="tagline-sep">♥</span>
+        <span class="tagline-item">Clear the NCLEX-RN with confidence — your 8-week prep plan</span><span class="tagline-sep">♥</span>
+      </div>
+      <div class="tagline-group">
+        <span class="tagline-item">Clear the NCLEX-RN with confidence — your 8-week prep plan</span><span class="tagline-sep">♥</span>
+        <span class="tagline-item">Clear the NCLEX-RN with confidence — your 8-week prep plan</span><span class="tagline-sep">♥</span>
+        <span class="tagline-item">Clear the NCLEX-RN with confidence — your 8-week prep plan</span><span class="tagline-sep">♥</span>
+        <span class="tagline-item">Clear the NCLEX-RN with confidence — your 8-week prep plan</span><span class="tagline-sep">♥</span>
+        <span class="tagline-item">Clear the NCLEX-RN with confidence — your 8-week prep plan</span><span class="tagline-sep">♥</span>
+        <span class="tagline-item">Clear the NCLEX-RN with confidence — your 8-week prep plan</span><span class="tagline-sep">♥</span>
+      </div>
+    </div>
   </div>
 
   <div class="layout">
@@ -2085,6 +2102,25 @@ async function goHome(){
             ${(CONCEPTS[c.key]||[]).map((item,i)=>`<li>${item.point} <button class="explain-btn" onclick="showConceptDetail('${c.key}',${i})">Explain →</button></li>`).join("")}
           </ul>
         </details>
+      `).join("")}
+    </div>
+    <div class="card">
+      <h3>8-Week Suggested Preparation Schedule</h3>
+      <p style="font-size:13px;color:var(--ink-soft);margin:0 0 14px;">A structured pace to work through this bank before test day — adjust the timeline to fit your own exam date, but keep the order: concepts first, then volume, then your toughest gaps last.</p>
+      ${[
+        {week:"Week 1", title:"Foundations — Key Concepts + first custom tests", hours:"~3 hrs/day", detail:"Work through Key Concepts for 1–2 categories (~1.5 hrs/day), then build a 50-question Create Your Own Test targeting that same category to immediately apply it (~1.5 hrs/day)."},
+        {week:"Weeks 2–6", title:"Full-length tests + review", hours:"~3 hrs/day", detail:"Work steadily through the Full-Length Tests in the left rail. Review every missed question's rationale before starting the next test — the review is where most of the actual learning happens."},
+        {week:"Week 7", title:"Hard Tests + revisit Key Concepts", hours:"~3 hrs/day", detail:"Shift to the Hard Tests for the toughest, highest-yield question formats, and circle back through Key Concepts for any categories that are still feeling shaky."},
+        {week:"Week 8", title:"Targeted review of your weak areas", hours:"Flexible, as needed", detail:"Use Create Your Own Test to build focused practice around whichever categories your performance stats show as weakest — this final week is yours to customize."}
+      ].map(w=>`
+        <div style="border:1px solid var(--line);border-radius:9px;padding:12px 14px;margin-bottom:8px;background:var(--panel);">
+          <div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px;flex-wrap:wrap;">
+            <span class="mono" style="font-size:11px;letter-spacing:.06em;color:var(--teal-900);font-weight:700;">${w.week.toUpperCase()}</span>
+            <span class="mono" style="font-size:10.5px;color:var(--ink-soft);">${w.hours}</span>
+          </div>
+          <div style="font-weight:600;font-size:14px;margin:4px 0 4px;">${w.title}</div>
+          <div style="font-size:13px;color:var(--ink-soft);line-height:1.55;">${w.detail}</div>
+        </div>
       `).join("")}
     </div>
     <p style="font-size:11px;color:var(--ink-soft);text-align:center;margin:4px 0 0;">This question bank is independently written and reviewed for accuracy but may contain errors — <button class="link-btn" onclick="openTermsModal()">Terms &amp; Conditions</button></p>
