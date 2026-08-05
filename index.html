@@ -2011,9 +2011,8 @@ async function goHome(){
   renderRail();
   const perf = await loadPerformanceByCategory();
   const cov = CATEGORIES.map(c=>{
-    const count = QUESTIONS.filter(q=>q.category===c.key).length;
     return `<div class="weight-row">
-      <div class="weight-label">${c.label}<div class="mono" style="font-size:10.5px;color:var(--ink-soft);">${c.range} · ${count} live</div></div>
+      <div class="weight-label">${c.label}<div class="mono" style="font-size:10.5px;color:var(--ink-soft);">${c.range}</div></div>
       <div class="weight-bar-track"><div class="weight-bar-fill" style="width:${c.weight*3}%;background:${c.color}"></div></div>
       <div class="weight-pct mono">${c.weight}%</div>
       ${renderStars(c.key, perf)}
