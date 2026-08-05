@@ -2166,7 +2166,7 @@ function openCustomTestModal(){
       <span class="ct-dot" style="background:${c.color}"></span>
       <div class="ct-label">
         <div class="ct-name">${c.label}</div>
-        <div class="ct-weight">Real exam weight: ${c.weight}% (${c.range}) · ${available} available</div>
+        <div class="ct-weight">Real exam weight: ${c.weight}% (${c.range})</div>
       </div>
       <select onchange="setCustomTestCount('${c.key}', this.value)">
         ${options.map(n=>`<option value="${n}">${n}</option>`).join("")}
