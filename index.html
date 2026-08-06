@@ -500,20 +500,20 @@
   <div class="ecg-strip" aria-hidden="true">
     <div class="tagline-track">
       <div class="tagline-group">
-        <span class="tagline-item">Clear the NCLEX-RN with confidence — your 8-week prep plan</span><span class="tagline-sep">♥</span>
-        <span class="tagline-item">Clear the NCLEX-RN with confidence — your 8-week prep plan</span><span class="tagline-sep">♥</span>
-        <span class="tagline-item">Clear the NCLEX-RN with confidence — your 8-week prep plan</span><span class="tagline-sep">♥</span>
-        <span class="tagline-item">Clear the NCLEX-RN with confidence — your 8-week prep plan</span><span class="tagline-sep">♥</span>
-        <span class="tagline-item">Clear the NCLEX-RN with confidence — your 8-week prep plan</span><span class="tagline-sep">♥</span>
-        <span class="tagline-item">Clear the NCLEX-RN with confidence — your 8-week prep plan</span><span class="tagline-sep">♥</span>
+        <span class="tagline-item">Clear the NCLEX-RN with confidence — a prep plan built for you</span><span class="tagline-sep">♥</span>
+        <span class="tagline-item">Clear the NCLEX-RN with confidence — a prep plan built for you</span><span class="tagline-sep">♥</span>
+        <span class="tagline-item">Clear the NCLEX-RN with confidence — a prep plan built for you</span><span class="tagline-sep">♥</span>
+        <span class="tagline-item">Clear the NCLEX-RN with confidence — a prep plan built for you</span><span class="tagline-sep">♥</span>
+        <span class="tagline-item">Clear the NCLEX-RN with confidence — a prep plan built for you</span><span class="tagline-sep">♥</span>
+        <span class="tagline-item">Clear the NCLEX-RN with confidence — a prep plan built for you</span><span class="tagline-sep">♥</span>
       </div>
       <div class="tagline-group">
-        <span class="tagline-item">Clear the NCLEX-RN with confidence — your 8-week prep plan</span><span class="tagline-sep">♥</span>
-        <span class="tagline-item">Clear the NCLEX-RN with confidence — your 8-week prep plan</span><span class="tagline-sep">♥</span>
-        <span class="tagline-item">Clear the NCLEX-RN with confidence — your 8-week prep plan</span><span class="tagline-sep">♥</span>
-        <span class="tagline-item">Clear the NCLEX-RN with confidence — your 8-week prep plan</span><span class="tagline-sep">♥</span>
-        <span class="tagline-item">Clear the NCLEX-RN with confidence — your 8-week prep plan</span><span class="tagline-sep">♥</span>
-        <span class="tagline-item">Clear the NCLEX-RN with confidence — your 8-week prep plan</span><span class="tagline-sep">♥</span>
+        <span class="tagline-item">Clear the NCLEX-RN with confidence — a prep plan built for you</span><span class="tagline-sep">♥</span>
+        <span class="tagline-item">Clear the NCLEX-RN with confidence — a prep plan built for you</span><span class="tagline-sep">♥</span>
+        <span class="tagline-item">Clear the NCLEX-RN with confidence — a prep plan built for you</span><span class="tagline-sep">♥</span>
+        <span class="tagline-item">Clear the NCLEX-RN with confidence — a prep plan built for you</span><span class="tagline-sep">♥</span>
+        <span class="tagline-item">Clear the NCLEX-RN with confidence — a prep plan built for you</span><span class="tagline-sep">♥</span>
+        <span class="tagline-item">Clear the NCLEX-RN with confidence — a prep plan built for you</span><span class="tagline-sep">♥</span>
       </div>
     </div>
   </div>
@@ -895,12 +895,12 @@ async function saveResultToSupabase(record, questions, answers){
    used to proportionally build full-length tests.
    ========================================================================= */
 const CATEGORIES = [
-  {key:"moc",   label:"Management of Care",                    short:"Mgmt of Care",   weight:20, range:"17–23%", color:"#0B4F45"},
-  {key:"sic",   label:"Safety & Infection Control",             short:"Safety/Infxn",   weight:12, range:"9–15%",  color:"#A9782C"},
+  {key:"moc",   label:"Management of Care",                    short:"Mgmt of Care",   weight:18, range:"15–21%", color:"#0B4F45"},
+  {key:"sic",   label:"Safety & Infection Prevention & Control", short:"Safety/Infxn",  weight:13, range:"10–16%", color:"#A9782C"},
   {key:"hpm",   label:"Health Promotion & Maintenance",         short:"Health Promo",   weight:9,  range:"6–12%",  color:"#2B5A82"},
   {key:"psy",   label:"Psychosocial Integrity",                 short:"Psychosocial",   weight:9,  range:"6–12%",  color:"#6E5A8C"},
   {key:"bcc",   label:"Basic Care & Comfort",                   short:"Basic Care",     weight:9,  range:"6–12%",  color:"#3C7A5E"},
-  {key:"pharm", label:"Pharmacological & Parenteral Therapies", short:"Pharmacology",   weight:15, range:"12–18%", color:"#2A3E6E"},
+  {key:"pharm", label:"Pharmacological & Parenteral Therapies", short:"Pharmacology",   weight:16, range:"13–19%", color:"#2A3E6E"},
   {key:"rrp",   label:"Reduction of Risk Potential",            short:"Risk Reduction", weight:12, range:"9–15%",  color:"#55606B"},
   {key:"pa",    label:"Physiological Adaptation",                short:"Physio Adapt",   weight:14, range:"11–17%", color:"#7A3B2E"}
 ];
@@ -3008,7 +3008,7 @@ function renderPromoList(promos){
   if(!promos.length) return `<p style="font-size:12.5px;color:var(--ink-soft);">No promo codes yet.</p>`;
   return `<table style="width:100%;border-collapse:collapse;font-size:12.5px;">
     <thead><tr style="text-align:left;color:var(--ink-soft);border-bottom:1px solid var(--line);">
-      <th style="padding:6px 4px;">Code</th><th>Grants</th><th>Uses</th><th>Status</th><th></th>
+      <th style="padding:6px 4px;">Code</th><th>Grants</th><th>Uses</th><th>Status</th><th colspan="2"></th>
     </tr></thead>
     <tbody>
       ${promos.map(p=>`
@@ -3018,10 +3018,12 @@ function renderPromoList(promos){
           <td>${p.uses_count}${p.max_uses ? "/"+p.max_uses : ""}</td>
           <td>${p.active ? "Active" : "Inactive"}</td>
           <td><button type="button" class="link-btn" onclick="toggleAdminPromoCode(${p.id}, ${!p.active})">${p.active ? "Deactivate" : "Activate"}</button></td>
+          <td><button type="button" class="link-btn" style="color:var(--incorrect);" onclick="forceEndAdminPromoCode('${p.code}', ${p.uses_count})">Force end</button></td>
         </tr>
       `).join("")}
     </tbody>
-  </table>`;
+  </table>
+  <p style="font-size:11px;color:var(--ink-soft);margin:8px 4px 0;">Deactivate just stops new redemptions. Force end also immediately resets every user who redeemed that code back to the free tier.</p>`;
 }
 async function saveAdminPricing(tierId){
   const val = parseFloat(document.getElementById("price-"+tierId).value);
@@ -3075,6 +3077,23 @@ async function toggleAdminPromoCode(id, newActive){
     document.getElementById("adminPromoList").innerHTML = renderPromoList(promos);
   }catch(e){
     console.error("Couldn't update promo code.", e);
+  }
+}
+async function forceEndAdminPromoCode(code, usesCount){
+  const confirmed = confirm(
+    `Force end "${code}"?\n\nThis deactivates the code AND immediately resets every user who redeemed it (up to ${usesCount} of them) back to the free tier — including anyone currently mid-subscription from it. This can't be undone.\n\nType OK to proceed.`
+  );
+  if(!confirmed) return;
+  try{
+    const { data, error } = await sbClient.rpc("force_end_promo_code", { p_code: code });
+    if(error) throw error;
+    const result = data && data[0];
+    alert(`Done — "${code}" is deactivated and ${result ? result.affected_users : 0} user(s) were reset to the free tier.`);
+    const promos = await loadPromoCodes();
+    document.getElementById("adminPromoList").innerHTML = renderPromoList(promos);
+  }catch(e){
+    console.error("Couldn't force end promo code.", e);
+    alert("Something went wrong — please try again.");
   }
 }
 async function searchAdminUser(){
