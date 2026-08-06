@@ -165,6 +165,13 @@
   .auth-field input:focus, .auth-field select:focus, .auth-field textarea:focus{outline:none;border-color:var(--teal-600);}
   .issue-context{font-size:11.5px;font-family:'IBM Plex Mono',monospace;background:var(--teal-100);color:var(--teal-900);border-radius:6px;padding:6px 10px;margin-bottom:12px;}
   .issue-modal, .contact-modal{max-width:480px;}
+  .upgrade-modal{max-width:560px;}
+  .pricing-cards{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;}
+  .pricing-card{border:1px solid var(--line);border-radius:9px;padding:14px 10px;text-align:center;}
+  .pricing-card .p-label{font-family:'IBM Plex Mono',monospace;font-size:10.5px;letter-spacing:.06em;color:var(--ink-soft);text-transform:uppercase;}
+  .pricing-card .p-price{font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:22px;color:var(--teal-900);margin:6px 0 2px;}
+  .pricing-card .p-duration{font-size:11px;color:var(--ink-soft);margin-bottom:10px;}
+  @media (max-width:520px){ .pricing-cards{grid-template-columns:1fr;} }
   .topbar-help-btn{font-size:12px;color:var(--ink-soft);background:none;border:none;font-family:'IBM Plex Sans',sans-serif;text-decoration:underline;cursor:pointer;}
   .form-success{font-size:13px;color:var(--teal-600);text-align:center;padding:12px 0;}
   .auth-error{color:var(--incorrect);font-size:12px;margin:-4px 0 10px;min-height:14px;}
@@ -208,6 +215,8 @@
   .rail-btn.rail-btn-hard{border-color:rgba(184,64,42,.25);}
   .rail-btn.rail-btn-hard:hover{border-color:var(--incorrect);}
   .rail-btn.rail-btn-hard.active{background:var(--incorrect);color:#fff;}
+  .rail-btn.rail-btn-locked{opacity:.55;}
+  .rail-btn.rail-btn-locked:hover{opacity:.85;background:var(--paper);}
   .rail-btn .id{font-family:'IBM Plex Mono',monospace;font-size:11.5px;}
   .rail-btn .status{width:7px;height:7px;border-radius:50%;background:var(--line);flex-shrink:0;}
   .rail-btn .status.done{background:var(--teal-600);}
@@ -394,7 +403,7 @@
         <button type="submit" class="btn" id="authSubmitBtn" style="width:100%;">Log in</button>
         <p id="authTermsNote" style="display:none;font-size:11px;color:var(--ink-soft);text-align:center;margin:10px 0 0;line-height:1.5;">By creating an account, you agree to our <button type="button" class="link-btn" onclick="openTermsModal()">Terms &amp; Conditions</button>.</p>
       </form>
-      <div class="auth-guest-note">No account needed to practice — close this and you'll continue as a guest. Guest results still save, just without a login to review them later.</div>
+      <div class="auth-guest-note">An account is required to take any test — it's how your one free mock test and your results history work. Signing up takes under a minute.</div>
     </div>
   </div>
 
@@ -446,6 +455,23 @@
       <p style="text-align:center;margin:0;">
         <a href="mailto:abc@xyz.com" class="mono" style="font-size:15px;color:var(--teal-600);font-weight:600;">abc@xyz.com</a>
       </p>
+    </div>
+  </div>
+
+  <div class="auth-overlay" id="upgradeOverlay" style="display:none;">
+    <div class="auth-modal upgrade-modal">
+      <button class="auth-close" id="upgradeCloseBtn" aria-label="Close">×</button>
+      <h3 style="margin:0 0 4px;font-size:17px;">Upgrade to keep going</h3>
+      <p style="font-size:12.5px;color:var(--ink-soft);margin:0 0 16px;">Your free mock test is used, or this is a premium feature. Pick a plan below, or enter a promo code if you have one.</p>
+      <div id="pricingCards" class="pricing-cards"></div>
+      <div class="auth-field" style="margin-top:16px;">
+        <label>Have a promo code?</label>
+        <div style="display:flex;gap:8px;">
+          <input type="text" id="promoCodeInput" placeholder="Enter code" style="flex:1;">
+          <button type="button" class="btn" style="flex-shrink:0;" onclick="applyPromoCode()">Apply</button>
+        </div>
+      </div>
+      <div id="promoMessage" style="font-size:12.5px;margin-top:6px;"></div>
     </div>
   </div>
 
@@ -521,7 +547,7 @@ if(supabaseConfigured && window.supabase){
    (no localStorage is used here), so guest history isn't recoverable
    across visits — only signed-in students get durable history.
    ========================================================================= */
-const authState = { user:null, guestId:null };
+const authState = { user:null, guestId:null, profile:null };
 let authMode = "signin";
 
 function newGuestId(){
@@ -532,7 +558,7 @@ async function initAuth(){
   if(sbClient){
     try{
       const { data } = await sbClient.auth.getSession();
-      if(data && data.session) applySession(data.session);
+      if(data && data.session) await applySession(data.session);
       sbClient.auth.onAuthStateChange((_event, session)=>{
         if(session) applySession(session); else clearSession();
       });
@@ -543,32 +569,71 @@ async function initAuth(){
   if(!authState.user) authState.guestId = newGuestId();
   renderAccountWidget();
 }
-function applySession(session){
+async function applySession(session){
   const u = session.user;
   authState.user = { id:u.id, email:u.email, name:(u.user_metadata && u.user_metadata.full_name) || u.email.split("@")[0] };
   authState.guestId = null;
+  await fetchProfile();
   renderAccountWidget();
+}
+async function fetchProfile(){
+  if(!sbClient || !authState.user) return;
+  try{
+    const { data, error } = await sbClient.from("profiles").select("*").eq("id", authState.user.id).single();
+    if(error) throw error;
+    authState.profile = data;
+  }catch(e){
+    console.error("Couldn't load profile — subscription/free-test status may be unavailable.", e);
+    authState.profile = null;
+  }
 }
 function clearSession(){
   authState.user = null;
+  authState.profile = null;
   authState.guestId = newGuestId();
   renderAccountWidget();
+}
+function hasActiveSubscription(){
+  const p = authState.profile;
+  if(!p) return false;
+  return p.subscription_tier !== "free" && p.subscription_expires_at && new Date(p.subscription_expires_at) > new Date();
+}
+function isAdmin(){
+  return !!(authState.profile && authState.profile.is_admin);
+}
+function fullTestAccessState(n){
+  if(!authState.user) return "login";
+  if(hasActiveSubscription()) return "open";
+  const p = authState.profile;
+  if(!p) return "login";
+  if(p.free_mock_tests_used === 0) return "open";
+  if(p.free_test_unlocked_number === n) return "open";
+  return "upgrade";
+}
+function hardTestAccessState(){
+  if(!authState.user) return "login";
+  if(hasActiveSubscription()) return "open";
+  return "upgrade";
 }
 
 function renderAccountWidget(){
   const el = document.getElementById("accountWidget");
   if(!el) return;
   if(authState.user){
+    const tierLabel = hasActiveSubscription()
+      ? (authState.profile.subscription_tier.toUpperCase()+" — ACTIVE")
+      : "FREE ACCOUNT";
     el.innerHTML = `
       <div class="account-pill">
-        <div class="who"><b>${authState.user.name}</b><span>SIGNED IN</span></div>
+        <div class="who"><b>${authState.user.name}</b><span>${tierLabel}</span></div>
         <button class="link-btn" onclick="viewMyResults()">History</button>
+        ${isAdmin() ? `<button class="link-btn" onclick="goAdmin()">Admin</button>` : ""}
         <button class="link-btn" onclick="signOut()">Log out</button>
       </div>`;
   } else {
     el.innerHTML = `
       <div class="account-pill">
-        <div class="who"><b>Guest</b><span>NOT SAVED TO ACCOUNT</span></div>
+        <div class="who"><b>Guest</b><span>LOG IN TO START A TEST</span></div>
       </div>
       <button class="account-btn" onclick="openAuthModal('signin')">Log in / Sign up</button>`;
   }
@@ -2021,10 +2086,14 @@ function renderRail(){
     const prog = state.testProgress[n];
     const statusClass = prog ? (prog.status==="done" ? "done":"progress") : "";
     const label = prog && prog.status==="done" ? `${prog.score}%` : "";
-    return `<button class="rail-btn ${active}" onclick="startFullTest(${n})">
+    const access = fullTestAccessState(n);
+    const locked = access !== "open";
+    const clickHandler = access==="open" ? `startFullTest(${n})` : access==="login" ? `openAuthModal('signin')` : `openUpgradeModal()`;
+    const lockBadge = access==="login" ? "🔒" : access==="upgrade" ? "⭐" : "";
+    return `<button class="rail-btn ${active} ${locked?'rail-btn-locked':''}" onclick="${clickHandler}">
       <span class="id mono" style="display:flex;flex-direction:column;line-height:1.35;">
         <span style="font-size:8px;opacity:.65;letter-spacing:.05em;">FULL LENGTH</span>
-        <span style="font-size:11.5px;">TEST ${String(n).padStart(2,"0")}</span>
+        <span style="font-size:11.5px;">TEST ${String(n).padStart(2,"0")} ${lockBadge}</span>
       </span>
       <span style="display:flex;align-items:center;gap:6px;">
         <span class="mono" style="font-size:10.5px;opacity:.8;">${label}</span>
@@ -2033,14 +2102,19 @@ function renderRail(){
     </button>`;
   }).join("");
 
+  const hardAccess = hardTestAccessState();
+  const hardLocked = hardAccess !== "open";
+  const hardClickHandler = hardAccess==="open" ? null : hardAccess==="login" ? `openAuthModal('signin')` : `openUpgradeModal()`;
+  const hardLockBadge = hardAccess==="login" ? "🔒" : hardAccess==="upgrade" ? "⭐" : "";
   const hardBtns = Array.from({length:7},(_,i)=>i+1).map(n=>{
     const key = "hard-"+n;
     const active = state.quizKey===key ? "active":"";
     const prog = state.hardTestProgress[n];
     const statusClass = prog ? (prog.status==="done" ? "done":"progress") : "";
     const label = prog && prog.status==="done" ? `${prog.score}%` : "";
-    return `<button class="rail-btn rail-btn-hard ${active}" onclick="startHardTest(${n})">
-      <span class="id mono">🔥 HARD ${String(n).padStart(2,"0")}</span>
+    const clickHandler = hardClickHandler || `startHardTest(${n})`;
+    return `<button class="rail-btn rail-btn-hard ${active} ${hardLocked?'rail-btn-locked':''}" onclick="${clickHandler}">
+      <span class="id mono">🔥 HARD ${String(n).padStart(2,"0")} ${hardLockBadge}</span>
       <span style="display:flex;align-items:center;gap:6px;">
         <span class="mono" style="font-size:10.5px;opacity:.8;">${label}</span>
         <span class="status ${statusClass}"></span>
@@ -2206,11 +2280,17 @@ async function backToKeyConcepts(catKey){
 
 let pendingStart = null;
 function startFullTest(n){
+  const access = fullTestAccessState(n);
+  if(access==="login"){ openAuthModal("signin"); return; }
+  if(access==="upgrade"){ openUpgradeModal(); return; }
   pendingStart = {kind:"full", key:n};
   document.getElementById("quizOptionsTitle").textContent = "Full Length Test "+n;
   document.getElementById("quizOptionsOverlay").style.display = "flex";
 }
 function startHardTest(n){
+  const access = hardTestAccessState();
+  if(access==="login"){ openAuthModal("signin"); return; }
+  if(access==="upgrade"){ openUpgradeModal(); return; }
   const hardCount = QUESTIONS.filter(q=>q.difficulty==="hard").length;
   if(hardCount===0){
     alert("Hard Tests aren't set up yet — run the tag-hard-questions.sql script in Supabase first, then reload the page.");
@@ -2233,7 +2313,26 @@ function confirmQuizMode(mode){
   else actuallyStartFullTest(p.key);
 }
 
-function actuallyStartFullTest(n){
+async function actuallyStartFullTest(n){
+  if(!hasActiveSubscription()){
+    try{
+      const { data, error } = await sbClient.rpc("use_free_mock_test", { p_test_number:n });
+      if(error) throw error;
+      const result = data && data[0];
+      if(!result || !result.allowed){
+        await fetchProfile();
+        renderRail();
+        openUpgradeModal();
+        return;
+      }
+      await fetchProfile();
+      renderAccountWidget();
+    }catch(e){
+      console.error("Couldn't verify free test eligibility.", e);
+      alert("Something went wrong checking your account access — please try again.");
+      return;
+    }
+  }
   const qs = buildFullTest(n);
   state.view="quiz"; state.quizKey="full-"+n; state.quizType="full"; state.quizTitle="Full Length Test "+n;
   state.testNumberForRetake = n;
@@ -2268,6 +2367,8 @@ function customTestDropdownOptions(available){
 }
 
 function openCustomTestModal(){
+  if(!authState.user){ openAuthModal("signin"); return; }
+  if(!hasActiveSubscription()){ openUpgradeModal(); return; }
   customTestSelections = {};
   customTestFeedbackMode = "immediate";
   document.getElementById("ctFeedbackImmediate").classList.add("active");
@@ -2739,6 +2840,275 @@ function closeContactModal(){
 }
 document.getElementById("contactCloseBtn").addEventListener("click", closeContactModal);
 document.getElementById("contactOverlay").addEventListener("click", e=>{ if(e.target.id==="contactOverlay") closeContactModal(); });
+
+let pricingCache = null;
+async function loadPricing(forceRefresh){
+  if(pricingCache && !forceRefresh) return pricingCache;
+  if(!sbClient) return [];
+  try{
+    const { data, error } = await sbClient.from("pricing_config").select("*").eq("active", true).order("display_order");
+    if(error) throw error;
+    pricingCache = data || [];
+  }catch(e){
+    console.error("Couldn't load pricing.", e);
+    pricingCache = [];
+  }
+  return pricingCache;
+}
+async function openUpgradeModal(){
+  document.getElementById("promoCodeInput").value = "";
+  document.getElementById("promoMessage").textContent = "";
+  const pricing = await loadPricing();
+  document.getElementById("pricingCards").innerHTML = pricing.map(p => `
+    <div class="pricing-card">
+      <div class="p-label">${p.label}</div>
+      <div class="p-price">$${Number(p.price_usd).toFixed(2)}</div>
+      <div class="p-duration">every ${p.duration_days} days</div>
+      <button type="button" class="btn" style="width:100%;font-size:12px;padding:8px;" onclick="closeUpgradeModal(); openContactModal();">Contact to upgrade</button>
+    </div>
+  `).join("") || `<p style="font-size:12.5px;color:var(--ink-soft);">Pricing isn't set up yet — contact us to upgrade in the meantime.</p>`;
+  document.getElementById("upgradeOverlay").style.display = "flex";
+}
+function closeUpgradeModal(){
+  document.getElementById("upgradeOverlay").style.display = "none";
+}
+document.getElementById("upgradeCloseBtn").addEventListener("click", closeUpgradeModal);
+document.getElementById("upgradeOverlay").addEventListener("click", e=>{ if(e.target.id==="upgradeOverlay") closeUpgradeModal(); });
+
+async function applyPromoCode(){
+  const code = document.getElementById("promoCodeInput").value.trim();
+  const msgEl = document.getElementById("promoMessage");
+  msgEl.textContent = "";
+  if(!authState.user){ openAuthModal("signin"); return; }
+  if(!code){ msgEl.style.color = "var(--incorrect)"; msgEl.textContent = "Enter a code first."; return; }
+  try{
+    const { data, error } = await sbClient.rpc("redeem_promo_code", { p_code: code });
+    if(error) throw error;
+    const result = data && data[0];
+    if(result && result.success){
+      msgEl.style.color = "var(--teal-600)";
+      msgEl.textContent = `${result.message} You now have ${result.granted_tier} access until ${new Date(result.expires_at).toLocaleDateString()}.`;
+      await fetchProfile();
+      renderAccountWidget();
+      renderRail();
+      setTimeout(closeUpgradeModal, 2200);
+    } else {
+      msgEl.style.color = "var(--incorrect)";
+      msgEl.textContent = (result && result.message) || "That code didn't work.";
+    }
+  }catch(e){
+    console.error("Promo redemption failed.", e);
+    msgEl.style.color = "var(--incorrect)";
+    msgEl.textContent = "Something went wrong applying that code — please try again.";
+  }
+}
+
+/* ---------- Admin page ---------- */
+async function goAdmin(){
+  if(!isAdmin()){ goHome(); return; }
+  state.view = "admin"; state.quizKey=null; state.quizType=null;
+  document.getElementById("main").innerHTML = `<div class="card"><h3>Loading admin panel…</h3></div>`;
+  const [pricing, promos] = await Promise.all([loadPricing(true), loadPromoCodes()]);
+  document.getElementById("main").innerHTML = `
+    <button class="link-btn" onclick="goHome()" style="margin-bottom:14px;">← Back to dashboard</button>
+
+    <div class="card">
+      <h3>Pricing</h3>
+      <p style="font-size:12.5px;color:var(--ink-soft);margin:0 0 14px;">Changes here update the Upgrade modal for every student immediately.</p>
+      ${pricing.map(p=>`
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px;">
+          <span class="mono" style="width:90px;font-size:12px;color:var(--ink-soft);">${p.label}</span>
+          <span class="mono" style="font-size:13px;">$</span>
+          <input type="number" step="0.01" min="0" id="price-${p.id}" value="${p.price_usd}" style="width:90px;border:1px solid var(--line);border-radius:6px;padding:6px 8px;font-family:'IBM Plex Mono',monospace;">
+          <span style="font-size:11.5px;color:var(--ink-soft);">every ${p.duration_days} days</span>
+          <button type="button" class="link-btn" onclick="saveAdminPricing('${p.id}')">Save</button>
+          <span id="priceSaved-${p.id}" style="font-size:11.5px;color:var(--teal-600);"></span>
+        </div>
+      `).join("")}
+    </div>
+
+    <div class="card">
+      <h3>Promo Codes</h3>
+      <p style="font-size:12.5px;color:var(--ink-soft);margin:0 0 14px;">A redeemed code grants a tier for a set number of days immediately — no payment involved.</p>
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:8px;margin-bottom:12px;">
+        <input type="text" id="newPromoCode" placeholder="CODE" style="border:1px solid var(--line);border-radius:6px;padding:8px;font-family:'IBM Plex Mono',monospace;text-transform:uppercase;">
+        <select id="newPromoTier" style="border:1px solid var(--line);border-radius:6px;padding:8px;">
+          <option value="weekly">Weekly</option>
+          <option value="monthly">Monthly</option>
+          <option value="quarterly">3 Months</option>
+        </select>
+        <input type="number" id="newPromoDays" placeholder="Days" min="1" style="border:1px solid var(--line);border-radius:6px;padding:8px;">
+        <input type="number" id="newPromoMaxUses" placeholder="Max uses (blank=∞)" min="1" style="border:1px solid var(--line);border-radius:6px;padding:8px;">
+      </div>
+      <button type="button" class="btn" onclick="createAdminPromoCode()">Create code</button>
+      <span id="promoCreateMsg" style="font-size:12px;margin-left:10px;"></span>
+      <div id="adminPromoList" style="margin-top:16px;">
+        ${renderPromoList(promos)}
+      </div>
+    </div>
+
+    <div class="card">
+      <h3>User Lookup &amp; Access</h3>
+      <p style="font-size:12.5px;color:var(--ink-soft);margin:0 0 14px;">Search by email to grant access, extend a subscription, or reset a student's free mock test.</p>
+      <div style="display:flex;gap:8px;margin-bottom:14px;">
+        <input type="email" id="adminUserSearch" placeholder="student@email.com" style="flex:1;border:1px solid var(--line);border-radius:6px;padding:8px;">
+        <button type="button" class="btn" onclick="searchAdminUser()">Search</button>
+      </div>
+      <div id="adminUserResult"></div>
+    </div>
+  `;
+}
+
+async function loadPromoCodes(){
+  if(!sbClient) return [];
+  try{
+    const { data, error } = await sbClient.from("promo_codes").select("*").order("created_at", { ascending:false });
+    if(error) throw error;
+    return data || [];
+  }catch(e){
+    console.error("Couldn't load promo codes.", e);
+    return [];
+  }
+}
+function renderPromoList(promos){
+  if(!promos.length) return `<p style="font-size:12.5px;color:var(--ink-soft);">No promo codes yet.</p>`;
+  return `<table style="width:100%;border-collapse:collapse;font-size:12.5px;">
+    <thead><tr style="text-align:left;color:var(--ink-soft);border-bottom:1px solid var(--line);">
+      <th style="padding:6px 4px;">Code</th><th>Grants</th><th>Uses</th><th>Status</th><th></th>
+    </tr></thead>
+    <tbody>
+      ${promos.map(p=>`
+        <tr style="border-bottom:1px solid var(--line);">
+          <td style="padding:6px 4px;font-family:'IBM Plex Mono',monospace;">${p.code}</td>
+          <td>${p.grants_tier}, ${p.grants_days}d</td>
+          <td>${p.uses_count}${p.max_uses ? "/"+p.max_uses : ""}</td>
+          <td>${p.active ? "Active" : "Inactive"}</td>
+          <td><button type="button" class="link-btn" onclick="toggleAdminPromoCode(${p.id}, ${!p.active})">${p.active ? "Deactivate" : "Activate"}</button></td>
+        </tr>
+      `).join("")}
+    </tbody>
+  </table>`;
+}
+async function saveAdminPricing(tierId){
+  const val = parseFloat(document.getElementById("price-"+tierId).value);
+  if(isNaN(val) || val < 0) return;
+  try{
+    const { error } = await sbClient.from("pricing_config").update({ price_usd: val }).eq("id", tierId);
+    if(error) throw error;
+    pricingCache = null; // force reload next time the upgrade modal opens
+    const savedEl = document.getElementById("priceSaved-"+tierId);
+    savedEl.textContent = "Saved ✓";
+    setTimeout(()=>{ savedEl.textContent = ""; }, 2000);
+  }catch(e){
+    console.error("Couldn't save pricing.", e);
+    alert("Couldn't save that price — please try again.");
+  }
+}
+async function createAdminPromoCode(){
+  const code = document.getElementById("newPromoCode").value.trim().toUpperCase();
+  const tier = document.getElementById("newPromoTier").value;
+  const days = parseInt(document.getElementById("newPromoDays").value);
+  const maxUsesRaw = document.getElementById("newPromoMaxUses").value.trim();
+  const maxUses = maxUsesRaw ? parseInt(maxUsesRaw) : null;
+  const msgEl = document.getElementById("promoCreateMsg");
+  msgEl.textContent = "";
+  if(!code || !days){
+    msgEl.style.color = "var(--incorrect)";
+    msgEl.textContent = "Enter a code and number of days.";
+    return;
+  }
+  try{
+    const { error } = await sbClient.from("promo_codes").insert({ code, grants_tier:tier, grants_days:days, max_uses:maxUses });
+    if(error) throw error;
+    msgEl.style.color = "var(--teal-600)";
+    msgEl.textContent = "Created.";
+    document.getElementById("newPromoCode").value = "";
+    document.getElementById("newPromoDays").value = "";
+    document.getElementById("newPromoMaxUses").value = "";
+    const promos = await loadPromoCodes();
+    document.getElementById("adminPromoList").innerHTML = renderPromoList(promos);
+  }catch(e){
+    console.error("Couldn't create promo code.", e);
+    msgEl.style.color = "var(--incorrect)";
+    msgEl.textContent = e.message && e.message.includes("duplicate") ? "That code already exists." : "Couldn't create that code.";
+  }
+}
+async function toggleAdminPromoCode(id, newActive){
+  try{
+    const { error } = await sbClient.from("promo_codes").update({ active:newActive }).eq("id", id);
+    if(error) throw error;
+    const promos = await loadPromoCodes();
+    document.getElementById("adminPromoList").innerHTML = renderPromoList(promos);
+  }catch(e){
+    console.error("Couldn't update promo code.", e);
+  }
+}
+async function searchAdminUser(){
+  const email = document.getElementById("adminUserSearch").value.trim();
+  const resultEl = document.getElementById("adminUserResult");
+  if(!email){ return; }
+  resultEl.innerHTML = `<p style="font-size:12.5px;color:var(--ink-soft);">Searching…</p>`;
+  try{
+    const { data, error } = await sbClient.from("profiles").select("*").ilike("email", email).maybeSingle();
+    if(error) throw error;
+    if(!data){
+      resultEl.innerHTML = `<p style="font-size:12.5px;color:var(--ink-soft);">No account found with that email.</p>`;
+      return;
+    }
+    const expiry = data.subscription_expires_at ? new Date(data.subscription_expires_at) : null;
+    const expiryStr = expiry ? expiry.toISOString().slice(0,10) : "";
+    resultEl.innerHTML = `
+      <div style="border:1px solid var(--line);border-radius:9px;padding:14px;">
+        <div style="font-weight:600;margin-bottom:4px;">${data.full_name || data.email}</div>
+        <div style="font-size:12px;color:var(--ink-soft);margin-bottom:12px;">${data.email} · Free tests used: ${data.free_mock_tests_used}${data.free_test_unlocked_number ? " (Test "+data.free_test_unlocked_number+")" : ""}</div>
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:10px;">
+          <select id="grantTier">
+            <option value="free" ${data.subscription_tier==="free"?"selected":""}>Free (no subscription)</option>
+            <option value="weekly" ${data.subscription_tier==="weekly"?"selected":""}>Weekly</option>
+            <option value="monthly" ${data.subscription_tier==="monthly"?"selected":""}>Monthly</option>
+            <option value="quarterly" ${data.subscription_tier==="quarterly"?"selected":""}>3 Months</option>
+          </select>
+          <input type="date" id="grantExpiry" value="${expiryStr}" style="border:1px solid var(--line);border-radius:6px;padding:7px 8px;">
+          <button type="button" class="btn" onclick="grantAdminUserAccess('${data.id}')">Save access</button>
+        </div>
+        <button type="button" class="link-btn" onclick="resetAdminUserFreeTest('${data.id}')">Reset free mock test</button>
+        <span id="adminUserActionMsg" style="font-size:11.5px;color:var(--teal-600);margin-left:8px;"></span>
+      </div>
+    `;
+  }catch(e){
+    console.error("User search failed.", e);
+    resultEl.innerHTML = `<p style="font-size:12.5px;color:var(--incorrect);">Search failed — please try again.</p>`;
+  }
+}
+async function grantAdminUserAccess(userId){
+  const tier = document.getElementById("grantTier").value;
+  const expiryVal = document.getElementById("grantExpiry").value;
+  const msgEl = document.getElementById("adminUserActionMsg");
+  try{
+    const update = { subscription_tier: tier, subscription_expires_at: (tier==="free" || !expiryVal) ? null : new Date(expiryVal+"T23:59:59").toISOString() };
+    const { error } = await sbClient.from("profiles").update(update).eq("id", userId);
+    if(error) throw error;
+    msgEl.textContent = "Saved ✓";
+    setTimeout(()=>{ msgEl.textContent=""; }, 2000);
+  }catch(e){
+    console.error("Couldn't grant access.", e);
+    msgEl.style.color = "var(--incorrect)";
+    msgEl.textContent = "Couldn't save — try again.";
+  }
+}
+async function resetAdminUserFreeTest(userId){
+  const msgEl = document.getElementById("adminUserActionMsg");
+  try{
+    const { error } = await sbClient.from("profiles").update({ free_mock_tests_used:0, free_test_unlocked_number:null }).eq("id", userId);
+    if(error) throw error;
+    msgEl.textContent = "Free test reset ✓";
+    setTimeout(()=>{ msgEl.textContent=""; }, 2000);
+  }catch(e){
+    console.error("Couldn't reset free test.", e);
+    msgEl.style.color = "var(--incorrect)";
+    msgEl.textContent = "Couldn't reset — try again.";
+  }
+}
 
 async function boot(){
   document.getElementById("main").innerHTML = `<div class="card"><h3>Loading question bank…</h3></div>`;
