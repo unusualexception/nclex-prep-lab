@@ -250,6 +250,9 @@
   /* ---------- Quiz ---------- */
   .quiz-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;flex-wrap:wrap;gap:8px;}
   .quiz-title{font-size:12px;font-family:'IBM Plex Mono',monospace;color:var(--ink-soft);text-transform:uppercase;letter-spacing:.06em;}
+  .quiz-header-left{display:flex;flex-direction:column;gap:2px;}
+  .quiz-timer{font-family:'IBM Plex Mono',monospace;font-size:13px;font-weight:700;padding:4px 10px;border-radius:6px;background:var(--teal-100);color:var(--teal-900);letter-spacing:.03em;white-space:nowrap;}
+  .quiz-timer.urgent{background:#FBEAEA;color:var(--incorrect);}
   .progress-track{height:5px;background:var(--line-soft);border-radius:4px;overflow:hidden;margin-bottom:22px;}
   .progress-fill{height:100%;background:var(--teal-600);transition:width .25s;}
   .cat-tag{
@@ -875,7 +878,8 @@ async function saveResultToSupabase(record, questions, answers){
           selected: a.selected!==undefined ? a.selected : null,
           correct_answer: q.correct,
           status: a.status || "skipped",
-          correct_flag: a.status === "correct"
+          correct_flag: a.status === "correct",
+          time_spent_seconds: a.timeSpentSeconds !== undefined ? a.timeSpentSeconds : null
         };
       });
       const { error: aErr } = await sbClient.from("quiz_answers").insert(answerRows);
@@ -2030,7 +2034,11 @@ const state = {
   sessionCorrect:0,
   sessionTotal:0,
   testProgress:{},         // testNumber -> {status, score}
-  hardTestProgress:{}      // testNumber -> {status, score}
+  hardTestProgress:{},     // testNumber -> {status, score}
+  testStartTime:null,      // Date.now() when the current test began — drives Learning Mode count-up
+  questionStartTime:null,  // Date.now() when the current question was first shown — per-question timing
+  examDeadline:null,       // Date.now() + budget, for Exam Mode countdown; null in Learning Mode
+  timerHandle:null         // setInterval reference for the visible HH:MM:SS clock
 };
 
 function mulberry32(seed){
@@ -2206,6 +2214,7 @@ async function loadPerformanceByCategory(){
 
 /* ---------- Views ---------- */
 async function goHome(){
+  stopQuizTimer();
   state.view="home"; state.quizKey=null; state.quizType=null;
   renderRail();
   const perf = await loadPerformanceByCategory();
@@ -2367,6 +2376,7 @@ async function actuallyStartFullTest(n){
   state.questions=qs; state.index=0; state.answers=[]; state.locked=false; state.selectedSata=new Set();
   state.testProgress[n] = {status:"progress"};
   renderRail();
+  startQuizTimer();
   renderQuestion();
 }
 
@@ -2377,6 +2387,7 @@ function actuallyStartHardTest(n){
   state.questions=qs; state.index=0; state.answers=[]; state.locked=false; state.selectedSata=new Set();
   state.hardTestProgress[n] = {status:"progress"};
   renderRail();
+  startQuizTimer();
   renderQuestion();
 }
 
@@ -2474,7 +2485,64 @@ async function startCustomTest(){
 
   closeCustomTestModal();
   renderRail();
+  startQuizTimer();
   renderQuestion();
+}
+
+/* ---------- Quiz timer ----------
+   Learning Mode (immediate feedback): counts UP from 00:00:00 for the whole
+   test, and per-question time is captured separately in recordAnswer().
+   Exam Mode (feedback at the end): counts DOWN from a budget of 2 minutes
+   per question — derived directly from the real NCLEX-RN's own parameters
+   (a flat 5-hour/300-minute limit for a 150-question maximum-length exam:
+   300 ÷ 150 = 2 min/question), scaled to however many questions this
+   particular test has. Hits zero → the test ends automatically, same as
+   the real exam would. */
+function formatHMS(totalSeconds){
+  const s = Math.max(0, Math.floor(totalSeconds));
+  const h = Math.floor(s/3600);
+  const m = Math.floor((s%3600)/60);
+  const sec = s%60;
+  return String(h).padStart(2,"0")+":"+String(m).padStart(2,"0")+":"+String(sec).padStart(2,"0");
+}
+function startQuizTimer(){
+  stopQuizTimer();
+  state.testStartTime = Date.now();
+  state.questionStartTime = Date.now();
+  state.examDeadline = state.feedbackMode==="end" ? (Date.now() + state.questions.length*120*1000) : null;
+  updateQuizTimerDisplay();
+  state.timerHandle = setInterval(updateQuizTimerDisplay, 1000);
+}
+function stopQuizTimer(){
+  if(state.timerHandle){ clearInterval(state.timerHandle); state.timerHandle = null; }
+}
+function updateQuizTimerDisplay(){
+  const el = document.getElementById("quizTimerDisplay");
+  if(state.feedbackMode==="end" && state.examDeadline){
+    const remainingSec = (state.examDeadline - Date.now())/1000;
+    if(el){
+      el.textContent = formatHMS(remainingSec);
+      el.classList.toggle("urgent", remainingSec <= 300);
+    }
+    if(remainingSec <= 0){
+      stopQuizTimer();
+      handleTimeUp();
+    }
+  } else if(state.testStartTime){
+    const elapsedSec = (Date.now() - state.testStartTime)/1000;
+    if(el) el.textContent = formatHMS(elapsedSec);
+  }
+}
+function handleTimeUp(){
+  const remaining = state.questions.length - state.answers.length;
+  for(let i=state.answers.length; i<state.questions.length; i++){
+    const q = state.questions[i];
+    state.answers.push({qId:q.id, status:"skipped", selected:null, subtopic:q.subtopic, concept:q.explain.concept, category:q.category, timeSpentSeconds:0});
+  }
+  state.sessionTotal += remaining;
+  renderSessionScore();
+  alert("⏰ Time's up! Your exam has ended — any unanswered questions were marked as skipped, matching how the real NCLEX-RN ends when time runs out.");
+  showResults();
 }
 
 function renderQuestion(){
@@ -2485,14 +2553,18 @@ function renderQuestion(){
   }
   state._recapShown = false;
   state.locked = false; state.selectedSata = new Set();
+  state.questionStartTime = Date.now();
   const q = state.questions[state.index];
   const c = CAT[q.category];
   const pct = Math.round((state.index/state.questions.length)*100);
   const isSata = q.type==="sata";
   document.getElementById("main").innerHTML = `
     <div class="quiz-header">
-      <span class="quiz-title">${state.quizTitle}</span>
-      <span class="quiz-title">Question ${state.index+1} of ${state.questions.length}</span>
+      <div class="quiz-header-left">
+        <span class="quiz-title">${state.quizTitle}</span>
+        <span class="quiz-title">Question ${state.index+1} of ${state.questions.length}</span>
+      </div>
+      <span class="quiz-timer mono" id="quizTimerDisplay">00:00:00</span>
     </div>
     <div class="progress-track"><div class="progress-fill" style="width:${pct}%"></div></div>
     <span class="cat-tag" style="background:${c.color}">${c.label} · ${q.subtopic}</span>
@@ -2510,6 +2582,7 @@ function renderQuestion(){
     </div>
     <div id="feedbackZone"></div>
   `;
+  updateQuizTimerDisplay();
 }
 
 function renderRecap(){
@@ -2521,6 +2594,10 @@ function renderRecap(){
     </div>`).join("");
   const correctCount = last10.filter(a=>a.status==="correct").length;
   document.getElementById("main").innerHTML = `
+    <div class="quiz-header" style="margin-bottom:8px;">
+      <div class="quiz-header-left"><span class="quiz-title">${state.quizTitle}</span></div>
+      <span class="quiz-timer mono" id="quizTimerDisplay">00:00:00</span>
+    </div>
     <div class="card">
       <div class="recap-icon">⚡</div>
       <h2 style="margin:0 0 4px;">Quick Check — last 10 questions</h2>
@@ -2529,6 +2606,7 @@ function renderRecap(){
       <button class="btn" onclick="continueAfterRecap()">Continue</button>
     </div>
   `;
+  updateQuizTimerDisplay();
 }
 function continueAfterRecap(){
   state.view="quiz";
@@ -2622,7 +2700,7 @@ function finishTestNow(){
   if(remaining > 0 && !confirm(`Finish now? The remaining ${remaining} question${remaining>1?"s":""} will be marked as skipped (0 points each).`)) return;
   for(let i=state.answers.length; i<state.questions.length; i++){
     const q = state.questions[i];
-    state.answers.push({qId:q.id, status:"skipped", selected:null, subtopic:q.subtopic, concept:q.explain.concept, category:q.category});
+    state.answers.push({qId:q.id, status:"skipped", selected:null, subtopic:q.subtopic, concept:q.explain.concept, category:q.category, timeSpentSeconds:0});
   }
   state.sessionTotal += remaining;
   renderSessionScore();
@@ -2641,7 +2719,8 @@ function renderDeferredFeedback(){
 }
 
 function recordAnswer(q, status, selected){
-  state.answers.push({qId:q.id, status, selected, subtopic:q.subtopic, concept:q.explain.concept, category:q.category});
+  const timeSpentSeconds = state.questionStartTime ? Math.round((Date.now()-state.questionStartTime)/1000) : null;
+  state.answers.push({qId:q.id, status, selected, subtopic:q.subtopic, concept:q.explain.concept, category:q.category, timeSpentSeconds});
   SESSION_ANSWER_LOG.push({category:q.category, status});
   state.sessionTotal++; if(status==="correct") state.sessionCorrect++;
   renderSessionScore();
@@ -2682,12 +2761,14 @@ function nextQuestion(){
 }
 
 function showResults(){
+  stopQuizTimer();
   state.view="results";
   const total = state.questions.length;
   const correct = state.answers.filter(a=>a.status==="correct").length;
   const incorrect = state.answers.filter(a=>a.status==="incorrect").length;
   const skipped = state.answers.filter(a=>a.status==="skipped").length;
   const pct = total ? Math.round((correct/total)*100) : 0;
+  const totalTimeSeconds = state.testStartTime ? Math.round((Date.now()-state.testStartTime)/1000) : null;
 
   // Weighted scoring: +2 per correct, -0.5 per incorrect, 0 per skipped
   const weightedScore = Math.round((correct*2 - incorrect*0.5) * 10) / 10;
@@ -2749,6 +2830,7 @@ function showResults(){
     <div class="card">
       <div class="score-hero"><span class="score-big" style="color:${weightedScore>=weightedMax*0.7?'var(--correct)':weightedScore>=weightedMax*0.5?'var(--gold)':'var(--incorrect)'}">${weightedScore}</span><span class="score-sub">of ${weightedMax} pts — ${state.quizTitle}</span></div>
       <p class="mono" style="font-size:13px;color:var(--ink-soft);margin:2px 0 0;">${correct} correct · ${incorrect} incorrect · ${skipped} skipped &nbsp;(${pct}% accuracy) &nbsp;·&nbsp; scoring: +2 correct, −0.5 incorrect, 0 skipped</p>
+      ${totalTimeSeconds!==null ? `<p class="mono" style="font-size:12px;color:var(--ink-soft);margin:2px 0 0;">Completed in ${formatHMS(totalTimeSeconds)}</p>` : ""}
       <div id="saveStatus"><span class="save-status off">Saving...</span></div>
       <div class="cta-row">
         <button class="btn" onclick="${retakeAction}">${retakeLabel}</button>
@@ -2783,7 +2865,8 @@ function showResults(){
     weighted_score: weightedScore,
     weighted_max: weightedMax,
     category_breakdown: byCat,
-    missed_concepts: missedSummary
+    missed_concepts: missedSummary,
+    total_time_seconds: totalTimeSeconds
   };
   saveResultToSupabase(record, state.questions, state.answers);
 }
