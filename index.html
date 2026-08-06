@@ -157,6 +157,8 @@
   .auth-tab.active{color:var(--teal-900);border-bottom-color:var(--teal-900);}
   .auth-field{margin-bottom:12px;display:flex;flex-direction:column;gap:4px;}
   .auth-field label{font-size:11.5px;font-family:'IBM Plex Mono',monospace;color:var(--ink-soft);}
+  .required-mark{color:var(--incorrect);font-weight:700;}
+  .optional-mark{color:var(--ink-soft);font-weight:400;font-style:italic;text-transform:none;letter-spacing:0;}
   .auth-field input, .auth-field select, .auth-field textarea{
     border:1px solid var(--line);border-radius:7px;padding:9px 10px;font-size:13.5px;
     font-family:'IBM Plex Sans',sans-serif;color:var(--ink);background:#fff;
@@ -166,11 +168,18 @@
   .issue-context{font-size:11.5px;font-family:'IBM Plex Mono',monospace;background:var(--teal-100);color:var(--teal-900);border-radius:6px;padding:6px 10px;margin-bottom:12px;}
   .issue-modal, .contact-modal{max-width:480px;}
   .upgrade-modal{max-width:560px;}
+  .upgrade-stats{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:16px;padding:14px 10px;background:var(--gold-100);border-radius:9px;}
+  .upgrade-stat{text-align:center;}
+  .upgrade-stat .u-num{display:block;font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:19px;color:var(--teal-900);}
+  .upgrade-stat .u-label{display:block;font-size:9.5px;color:var(--ink-soft);text-transform:uppercase;letter-spacing:.04em;margin-top:2px;}
+  @media (max-width:520px){ .upgrade-stats{grid-template-columns:repeat(2,1fr);} }
   .pricing-cards{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;}
   .pricing-card{border:1px solid var(--line);border-radius:9px;padding:14px 10px;text-align:center;}
   .pricing-card .p-label{font-family:'IBM Plex Mono',monospace;font-size:10.5px;letter-spacing:.06em;color:var(--ink-soft);text-transform:uppercase;}
   .pricing-card .p-price{font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:22px;color:var(--teal-900);margin:6px 0 2px;}
   .pricing-card .p-duration{font-size:11px;color:var(--ink-soft);margin-bottom:10px;}
+  .pricing-card .p-discount-badge{display:inline-block;background:var(--incorrect);color:#fff;font-size:10px;font-weight:700;padding:2px 8px;border-radius:10px;margin:2px 0 4px;letter-spacing:.03em;}
+  .pricing-card .p-full-price{font-size:13px;color:var(--ink-soft);text-decoration:line-through;margin-top:2px;}
   @media (max-width:520px){ .pricing-cards{grid-template-columns:1fr;} }
   .topbar-help-btn{font-size:12px;color:var(--ink-soft);background:none;border:none;font-family:'IBM Plex Sans',sans-serif;text-decoration:underline;cursor:pointer;}
   .form-success{font-size:13px;color:var(--teal-600);text-align:center;padding:12px 0;}
@@ -388,16 +397,24 @@
       </div>
       <form id="authForm">
         <div class="auth-field" id="nameFieldWrap" style="display:none;">
-          <label for="authName">Full name</label>
+          <label for="authName">Full name <span class="required-mark">*</span></label>
           <input id="authName" type="text" autocomplete="name" maxlength="60">
         </div>
         <div class="auth-field">
-          <label for="authEmail">Email</label>
+          <label for="authEmail">Email <span class="required-mark">*</span></label>
           <input id="authEmail" type="email" autocomplete="email" required>
         </div>
         <div class="auth-field">
-          <label for="authPassword">Password</label>
+          <label for="authPassword">Password <span class="required-mark">*</span></label>
           <input id="authPassword" type="password" autocomplete="current-password" minlength="6" required>
+        </div>
+        <div class="auth-field" id="schoolFieldWrap" style="display:none;">
+          <label for="authSchool">University or college <span class="optional-mark">(optional)</span></label>
+          <input id="authSchool" type="text" autocomplete="organization" maxlength="120">
+        </div>
+        <div class="auth-field" id="examDateFieldWrap" style="display:none;">
+          <label for="authExamDate">Target exam date <span class="optional-mark">(optional)</span></label>
+          <input id="authExamDate" type="date">
         </div>
         <div id="authError" class="auth-error"></div>
         <div class="auth-field consent-row" id="marketingConsentWrap" style="display:none;">
@@ -473,7 +490,9 @@
         You'll need an account to get started — it only takes a minute, and it's how your free mock test and results history work.
         <button type="button" class="btn" style="display:block;width:100%;margin-top:10px;font-size:12.5px;padding:8px;" onclick="closeUpgradeModal(); openAuthModal('signup');">Log in / Sign up</button>
       </div>
+      <div id="upgradeStats" class="upgrade-stats"></div>
       <div id="pricingCards" class="pricing-cards"></div>
+      <p style="text-align:center;font-size:11.5px;color:var(--ink-soft);margin:10px 0 0;">Cancel anytime — no long-term commitment.</p>
       <div id="upgradePromoSection">
         <div class="auth-field" style="margin-top:16px;">
           <label>Have a promo code?</label>
@@ -679,6 +698,8 @@ function setAuthMode(mode){
   document.getElementById("tabSignIn").classList.toggle("active", mode==="signin");
   document.getElementById("tabSignUp").classList.toggle("active", mode==="signup");
   document.getElementById("nameFieldWrap").style.display = mode==="signup" ? "flex":"none";
+  document.getElementById("schoolFieldWrap").style.display = mode==="signup" ? "flex":"none";
+  document.getElementById("examDateFieldWrap").style.display = mode==="signup" ? "flex":"none";
   document.getElementById("marketingConsentWrap").style.display = mode==="signup" ? "flex":"none";
   document.getElementById("authTermsNote").style.display = mode==="signup" ? "block":"none";
   document.getElementById("authSubmitBtn").textContent = mode==="signup" ? "Create account" : "Log in";
@@ -696,6 +717,8 @@ async function handleAuthSubmit(evt){
   const email = document.getElementById("authEmail").value.trim();
   const password = document.getElementById("authPassword").value;
   const name = document.getElementById("authName").value.trim();
+  const school = document.getElementById("authSchool").value.trim();
+  const examDate = document.getElementById("authExamDate").value;
   const btn = document.getElementById("authSubmitBtn");
   btn.disabled = true; btn.textContent = "Please wait...";
   try{
@@ -703,7 +726,10 @@ async function handleAuthSubmit(evt){
       if(!name){ throw new Error("Please enter your name."); }
       const marketingConsent = document.getElementById("authMarketingConsent").checked;
       const { data, error } = await sbClient.auth.signUp({
-        email, password, options:{ data:{ full_name:name, marketing_consent:marketingConsent, marketing_consent_at: new Date().toISOString() } }
+        email, password, options:{ data:{
+          full_name:name, marketing_consent:marketingConsent, marketing_consent_at: new Date().toISOString(),
+          school: school || null, target_exam_date: examDate || null
+        } }
       });
       if(error) throw error;
       if(data.session){
@@ -2140,6 +2166,8 @@ function buildFreeMockTest(){
 }
 
 /* ---------- Rendering: top bar ---------- */
+const LOCK_ICON = '<svg width="10" height="10" viewBox="0 0 24 24" style="vertical-align:-1px;display:inline-block;" aria-hidden="true"><rect x="5" y="11" width="14" height="10" rx="2" fill="currentColor"/><path d="M8 11V7a4 4 0 0 1 8 0v4" stroke="currentColor" stroke-width="2.4" fill="none" stroke-linecap="round"/></svg>';
+const STAR_ICON = '<svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor" style="vertical-align:-1px;display:inline-block;" aria-hidden="true"><path d="M12 2l2.9 6.6 7.1.6-5.4 4.7 1.6 7-6.2-3.8-6.2 3.8 1.6-7L2 9.2l7.1-.6L12 2z"/></svg>';
 function renderRail(){
   const list = document.getElementById("railList");
   const note = document.getElementById("railNote");
@@ -2157,7 +2185,7 @@ function renderRail(){
     <div class="rail-note" style="border-top:none;">85 questions, our most carefully explained content — completely free, just sign in to start.</div>
     <button class="rail-btn rail-btn-free ${state.quizKey==="freemock"?"active":""}" onclick="startFreeMockTest()">
       <span class="id mono" style="display:flex;flex-direction:column;line-height:1.35;">
-        <span style="font-size:8px;opacity:.75;letter-spacing:.05em;">⭐ FREE</span>
+        <span style="font-size:8px;opacity:.75;letter-spacing:.05em;">${STAR_ICON} FREE</span>
         <span style="font-size:11.5px;">MOCK TEST</span>
       </span>
       <span style="display:flex;align-items:center;gap:6px;">
@@ -2176,7 +2204,7 @@ function renderRail(){
     const access = fullTestAccessState(n);
     const locked = access !== "open";
     const clickHandler = access==="open" ? `startFullTest(${n})` : `openUpgradeModal()`;
-    const lockBadge = access==="login" ? "🔒" : access==="upgrade" ? "⭐" : "";
+    const lockBadge = access==="login" ? LOCK_ICON : access==="upgrade" ? STAR_ICON : "";
     return `<button class="rail-btn ${active} ${locked?'rail-btn-locked':''}" onclick="${clickHandler}">
       <span class="id mono" style="display:flex;flex-direction:column;line-height:1.35;">
         <span style="font-size:8px;opacity:.65;letter-spacing:.05em;">FULL LENGTH</span>
@@ -2192,7 +2220,7 @@ function renderRail(){
   const hardAccess = hardTestAccessState();
   const hardLocked = hardAccess !== "open";
   const hardClickHandler = hardAccess==="open" ? null : `openUpgradeModal()`;
-  const hardLockBadge = hardAccess==="login" ? "🔒" : hardAccess==="upgrade" ? "⭐" : "";
+  const hardLockBadge = hardAccess==="login" ? LOCK_ICON : hardAccess==="upgrade" ? STAR_ICON : "";
   const hardBtns = Array.from({length:7},(_,i)=>i+1).map(n=>{
     const key = "hard-"+n;
     const active = state.quizKey===key ? "active":"";
@@ -2297,7 +2325,7 @@ async function goHome(){
         <li><b>Create Your Own Test</b> (top bar) — pick exactly how many questions from each category, weighted however you want. Good for drilling a weak area or building a mini-mock.</li>
         <li><b>Full-length tests</b> (left rail) — proportionally sampled across all 8 categories to mirror real exam composition.</li>
         <li>Choose feedback timing per test: see answers immediately, or only in a full review at the end.</li>
-        <li>Every 10 questions in a full test, a short <b>Quick Check</b> recap surfaces the key concepts you just covered.</li>
+        <li>In <b>Learning Mode</b>, every 10 questions a short <b>Quick Check</b> recap surfaces the key concepts you just covered — this doesn't happen in Exam Mode, to keep it a true blind run like the real test.</li>
         <li>You can <b>skip</b> any question (scores 0) or <b>finish a test early</b> — anything left unanswered is scored as skipped, not wrong.</li>
       </ul>
     </div>
@@ -2317,14 +2345,14 @@ async function goHome(){
       <h3>8-Week Suggested Preparation Schedule</h3>
       <p style="font-size:13px;color:var(--ink-soft);margin:0 0 14px;">A structured pace to work through this bank before test day — adjust the timeline to fit your own exam date, but keep the order: concepts first, then volume, then your toughest gaps last.</p>
       ${[
-        {week:"Week 1", title:"Foundations — Key Concepts + first custom tests", hours:"~3 hrs/day", detail:"Work through Key Concepts for 1–2 categories (~1.5 hrs/day), then build a 50-question Create Your Own Test targeting that same category to immediately apply it (~1.5 hrs/day)."},
+        {week:"Week 1", title:"Foundations — Key Concepts + a focused custom test", hours:"~3 hrs/day", detail:"Work through Key Concepts for 1–2 categories (~1.5 hrs/day), then build a 50-question Create Your Own Test targeting that same category to immediately apply it (~1.5 hrs/day)."},
         {week:"Weeks 2–6", title:"Full-length tests + review", hours:"~3 hrs/day", detail:"Work steadily through the Full-Length Tests in the left rail. Review every missed question's rationale before starting the next test — the review is where most of the actual learning happens."},
         {week:"Week 7", title:"Hard Tests + revisit Key Concepts", hours:"~3 hrs/day", detail:"Shift to the Hard Tests for the toughest, highest-yield question formats, and circle back through Key Concepts for any categories that are still feeling shaky."},
         {week:"Week 8", title:"Targeted review of your weak areas", hours:"Flexible, as needed", detail:"Use Create Your Own Test to build focused practice around whichever categories your performance stats show as weakest — this final week is yours to customize."}
       ].map(w=>`
         <div style="border:1px solid var(--line);border-radius:9px;padding:12px 14px;margin-bottom:8px;background:var(--panel);">
           <div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px;flex-wrap:wrap;">
-            <span class="mono" style="font-size:11px;letter-spacing:.06em;color:var(--teal-900);font-weight:700;">${w.week.toUpperCase()}</span>
+            <span class="mono" style="font-size:11px;letter-spacing:.06em;color:var(--teal-900);font-weight:700;">${w.week}</span>
             <span class="mono" style="font-size:10.5px;color:var(--ink-soft);">${w.hours}</span>
           </div>
           <div style="font-weight:600;font-size:14px;margin:4px 0 4px;">${w.title}</div>
@@ -2599,7 +2627,7 @@ function handleTimeUp(){
 
 function renderQuestion(){
   if(state.index >= state.questions.length){ return showResults(); }
-  if(state.index>0 && state.index % 10 === 0 && !state._recapShown){
+  if(state.feedbackMode==="immediate" && state.index>0 && state.index % 10 === 0 && !state._recapShown){
     state._recapShown = true;
     return renderRecap();
   }
@@ -2812,6 +2840,53 @@ function nextQuestion(){
   renderQuestion();
 }
 
+/* Post-test summary — entirely rule-based, computed from the score/category/
+   timing data already collected. No AI/LLM call involved, so it's instant,
+   free, and doesn't depend on any external service being available. */
+function generateSummaryCommentary(byCat, total, correct, pct, totalTimeSeconds, avgSecPerQ){
+  const catArray = Object.entries(byCat)
+    .map(([key,v])=>({
+      key, label: CAT[key] ? CAT[key].label : key,
+      accuracy: v.total ? Math.round((v.correct/v.total)*100) : 0,
+      total: v.total,
+      avgTime: v.timeCount ? Math.round(v.timeSum/v.timeCount) : null
+    }))
+    .filter(c=>c.total>=2); // only call out categories with enough questions to mean something
+
+  const lines = [];
+
+  if(pct>=80) lines.push(`Strong showing — ${pct}% accuracy is solidly in passing territory. Keep this level of consistency going into test day.`);
+  else if(pct>=65) lines.push(`Solid result at ${pct}% accuracy — you're in a workable range, with some clear room to tighten up before the real thing.`);
+  else lines.push(`This one was a tougher run — ${pct}% accuracy means there's real ground still to cover before you're exam-ready, and that's exactly what practice like this is for.`);
+
+  if(catArray.length>=2){
+    const sorted = [...catArray].sort((a,b)=>b.accuracy-a.accuracy);
+    const strongest = sorted[0], weakest = sorted[sorted.length-1];
+    if(strongest.key!==weakest.key && (strongest.accuracy-weakest.accuracy)>=15){
+      lines.push(`<b>${strongest.label}</b> was your strongest section (${strongest.accuracy}% correct). <b>${weakest.label}</b> was your weakest (${weakest.accuracy}% correct) — that's where focused review will move the needle most.`);
+    } else {
+      lines.push(`Your accuracy held fairly steady across sections, without one clear weak spot — a sign of even preparation rather than a gap to chase down.`);
+    }
+  }
+
+  if(totalTimeSeconds && total){
+    if(state.feedbackMode==="end"){
+      const budgetSecPerQ = 120;
+      if(avgSecPerQ <= budgetSecPerQ*0.7){
+        lines.push(`You averaged ${formatHMS(avgSecPerQ)} per question — comfortably ahead of the ~2 min/question NCLEX pace. If accuracy is lagging, it may be worth slowing down slightly rather than speeding through.`);
+      } else if(avgSecPerQ <= budgetSecPerQ*1.15){
+        lines.push(`You averaged ${formatHMS(avgSecPerQ)} per question — right in line with the real exam's ~2 min/question pace.`);
+      } else {
+        lines.push(`You averaged ${formatHMS(avgSecPerQ)} per question — slower than the ~2 min/question NCLEX pace. Worth practicing more Exam Mode runs specifically to build speed under time pressure.`);
+      }
+    } else {
+      lines.push(`You spent an average of ${formatHMS(avgSecPerQ)} per question — normal for Learning Mode, where reading each rationale is part of the point.`);
+    }
+  }
+
+  return lines.join(" ");
+}
+
 function showResults(){
   stopQuizTimer();
   state.view="results";
@@ -2839,11 +2914,15 @@ function showResults(){
 
   const byCat = {};
   state.questions.forEach((q,i)=>{
-    byCat[q.category] = byCat[q.category] || {correct:0,total:0,skipped:0};
+    byCat[q.category] = byCat[q.category] || {correct:0,total:0,skipped:0,timeSum:0,timeCount:0};
     byCat[q.category].total++;
     const a = state.answers[i];
     if(a && a.status==="correct") byCat[q.category].correct++;
     if(a && a.status==="skipped") byCat[q.category].skipped++;
+    if(a && typeof a.timeSpentSeconds==="number"){
+      byCat[q.category].timeSum += a.timeSpentSeconds;
+      byCat[q.category].timeCount++;
+    }
   });
   const catRows = Object.entries(byCat).map(([key,v])=>{
     const c = CAT[key];
@@ -2881,6 +2960,8 @@ function showResults(){
     : state.quizType==="freemock" ? `startFreeMockTest()`
     : `openCustomTestModal()`;
   const retakeLabel = (state.quizType==="full" || state.quizType==="hard" || state.quizType==="freemock") ? "Retake" : "Create another test";
+  const avgSecPerQ = (totalTimeSeconds && total) ? Math.round(totalTimeSeconds/total) : 0;
+  const summaryCommentary = generateSummaryCommentary(byCat, total, correct, pct, totalTimeSeconds, avgSecPerQ);
 
   document.getElementById("main").innerHTML = `
     <div class="card">
@@ -2892,6 +2973,10 @@ function showResults(){
         <button class="btn" onclick="${retakeAction}">${retakeLabel}</button>
         <button class="btn secondary" onclick="goHome()">Back to dashboard</button>
       </div>
+    </div>
+    <div class="card">
+      <h3>How this test went</h3>
+      <p style="font-size:13.5px;line-height:1.65;margin:0;">${summaryCommentary}</p>
     </div>
     <div class="card">
       <h3>Score by category</h3>
@@ -3031,15 +3116,27 @@ async function openUpgradeModal(){
     : "Here's what's included — log in or sign up first, then come back to any of these plans (or your free mock test) whenever you're ready.";
   document.getElementById("promoCodeInput").value = "";
   document.getElementById("promoMessage").textContent = "";
+  document.getElementById("upgradeStats").innerHTML = `
+    <div class="upgrade-stat"><span class="u-num">${QUESTIONS.length.toLocaleString()}+</span><span class="u-label">Questions</span></div>
+    <div class="upgrade-stat"><span class="u-num">${CATEGORIES.length}</span><span class="u-label">NCLEX-RN Categories</span></div>
+    <div class="upgrade-stat"><span class="u-num">30</span><span class="u-label">Full-Length Tests</span></div>
+    <div class="upgrade-stat"><span class="u-num">7</span><span class="u-label">Hard Tests</span></div>
+  `;
   const pricing = await loadPricing();
-  document.getElementById("pricingCards").innerHTML = pricing.map(p => `
+  document.getElementById("pricingCards").innerHTML = pricing.map(p => {
+    const hasDiscount = p.full_price_usd && Number(p.full_price_usd) > Number(p.price_usd);
+    const pctOff = hasDiscount ? Math.round((1 - Number(p.price_usd)/Number(p.full_price_usd)) * 100) : 0;
+    return `
     <div class="pricing-card">
       <div class="p-label">${p.label}</div>
+      ${hasDiscount ? `<div class="p-discount-badge">${pctOff}% OFF</div>` : ""}
+      ${hasDiscount ? `<div class="p-full-price">$${Number(p.full_price_usd).toFixed(2)}</div>` : ""}
       <div class="p-price">$${Number(p.price_usd).toFixed(2)}</div>
       <div class="p-duration">every ${p.duration_days} days</div>
       <button type="button" class="btn" style="width:100%;font-size:12px;padding:8px;" onclick="closeUpgradeModal(); openContactModal();">Contact to upgrade</button>
     </div>
-  `).join("") || `<p style="font-size:12.5px;color:var(--ink-soft);">Pricing isn't set up yet — contact us to upgrade in the meantime.</p>`;
+  `;
+  }).join("") || `<p style="font-size:12.5px;color:var(--ink-soft);">Pricing isn't set up yet — contact us to upgrade in the meantime.</p>`;
   document.getElementById("upgradeOverlay").style.display = "flex";
 }
 function closeUpgradeModal(){
@@ -3087,12 +3184,18 @@ async function goAdmin(){
 
     <div class="card">
       <h3>Pricing</h3>
-      <p style="font-size:12.5px;color:var(--ink-soft);margin:0 0 14px;">Changes here update the Upgrade modal for every student immediately.</p>
+      <p style="font-size:12.5px;color:var(--ink-soft);margin:0 0 14px;">Changes here update the Upgrade modal for every student immediately. Leave "Full price" blank to show just a plain price with no discount badge — set it higher than "Price" to show a strikethrough original price and a % off badge.</p>
       ${pricing.map(p=>`
-        <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px;">
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px;flex-wrap:wrap;">
           <span class="mono" style="width:90px;font-size:12px;color:var(--ink-soft);">${p.label}</span>
-          <span class="mono" style="font-size:13px;">$</span>
-          <input type="number" step="0.01" min="0" id="price-${p.id}" value="${p.price_usd}" style="width:90px;border:1px solid var(--line);border-radius:6px;padding:6px 8px;font-family:'IBM Plex Mono',monospace;">
+          <label style="display:flex;align-items:center;gap:4px;font-size:11px;color:var(--ink-soft);">Full price
+            <span class="mono" style="font-size:13px;">$</span>
+            <input type="number" step="0.01" min="0" id="fullPrice-${p.id}" value="${p.full_price_usd || ""}" placeholder="none" style="width:80px;border:1px solid var(--line);border-radius:6px;padding:6px 8px;font-family:'IBM Plex Mono',monospace;">
+          </label>
+          <label style="display:flex;align-items:center;gap:4px;font-size:11px;color:var(--ink-soft);">Price
+            <span class="mono" style="font-size:13px;">$</span>
+            <input type="number" step="0.01" min="0" id="price-${p.id}" value="${p.price_usd}" style="width:80px;border:1px solid var(--line);border-radius:6px;padding:6px 8px;font-family:'IBM Plex Mono',monospace;">
+          </label>
           <span style="font-size:11.5px;color:var(--ink-soft);">every ${p.duration_days} days</span>
           <button type="button" class="link-btn" onclick="saveAdminPricing('${p.id}')">Save</button>
           <span id="priceSaved-${p.id}" style="font-size:11.5px;color:var(--teal-600);"></span>
@@ -3167,8 +3270,11 @@ function renderPromoList(promos){
 async function saveAdminPricing(tierId){
   const val = parseFloat(document.getElementById("price-"+tierId).value);
   if(isNaN(val) || val < 0) return;
+  const fullPriceRaw = document.getElementById("fullPrice-"+tierId).value.trim();
+  const fullVal = fullPriceRaw ? parseFloat(fullPriceRaw) : null;
+  if(fullPriceRaw && (isNaN(fullVal) || fullVal < 0)) return;
   try{
-    const { error } = await sbClient.from("pricing_config").update({ price_usd: val }).eq("id", tierId);
+    const { error } = await sbClient.from("pricing_config").update({ price_usd: val, full_price_usd: fullVal }).eq("id", tierId);
     if(error) throw error;
     pricingCache = null; // force reload next time the upgrade modal opens
     const savedEl = document.getElementById("priceSaved-"+tierId);
