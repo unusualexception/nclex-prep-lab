@@ -217,6 +217,9 @@
   .rail-btn.rail-btn-hard.active{background:var(--incorrect);color:#fff;}
   .rail-btn.rail-btn-locked{opacity:.55;}
   .rail-btn.rail-btn-locked:hover{opacity:.85;background:var(--paper);}
+  .rail-btn.rail-btn-free{border-color:var(--gold);background:var(--gold-100);}
+  .rail-btn.rail-btn-free:hover{border-color:var(--gold);}
+  .rail-btn.rail-btn-free.active{background:var(--gold);color:#fff;}
   .rail-btn .id{font-family:'IBM Plex Mono',monospace;font-size:11.5px;}
   .rail-btn .status{width:7px;height:7px;border-radius:50%;background:var(--line);flex-shrink:0;}
   .rail-btn .status.done{background:var(--teal-600);}
@@ -523,7 +526,6 @@
 
   <div class="layout">
     <aside class="rail" aria-label="Full-length tests">
-      <div class="rail-title">Full-Length Tests</div>
       <div class="rail-note" id="railNote"></div>
       <div class="rail-list" id="railList"></div>
     </aside>
@@ -627,16 +629,18 @@ function isAdmin(){
 function fullTestAccessState(n){
   if(!authState.user) return "login";
   if(hasActiveSubscription()) return "open";
-  const p = authState.profile;
-  if(!p) return "login";
-  if(p.free_mock_tests_used === 0) return "open";
-  if(p.free_test_unlocked_number === n) return "open";
   return "upgrade";
 }
 function hardTestAccessState(){
   if(!authState.user) return "login";
   if(hasActiveSubscription()) return "open";
   return "upgrade";
+}
+function freeMockTestAccessState(){
+  // Free for any logged-in account, regardless of subscription status —
+  // this is the one always-available, always-retakeable showcase test.
+  if(!authState.user) return "login";
+  return "open";
 }
 
 function renderAccountWidget(){
@@ -2035,6 +2039,7 @@ const state = {
   sessionTotal:0,
   testProgress:{},         // testNumber -> {status, score}
   hardTestProgress:{},     // testNumber -> {status, score}
+  freeMockTestProgress:null, // {status, score} — single fixed test, no number key needed
   testStartTime:null,      // Date.now() when the current test began — drives Learning Mode count-up
   questionStartTime:null,  // Date.now() when the current question was first shown — per-question timing
   examDeadline:null,       // Date.now() + budget, for Exam Mode countdown; null in Learning Mode
@@ -2102,22 +2107,66 @@ function buildHardTest(testNumber){
   return seededShuffle(selected, seed+555);
 }
 
+/* The Free Mock Test is a fixed, curated 85-question set — the NCLEX-RN's
+   published MINIMUM exam length — and unlike the 30 numbered Full Length
+   Tests, it's the same questions every time rather than a fresh random
+   draw, since this is meant to be a consistent, dependable showcase of the
+   bank's quality rather than one of many interchangeable practice runs.
+   It still follows real exam category weighting, but within each category
+   it deliberately leads with a SATA question when one's available — SATA
+   items carry a full per-option rationale breakdown, which is the richest,
+   most impressive explanation format in the bank, and a free account's one
+   guaranteed test is exactly where that should be front and center. */
+function buildFreeMockTest(){
+  const targetTotal = Math.min(85, QUESTIONS.length);
+  const seed = 8675309;
+  let selected = [];
+  CATEGORIES.forEach((c,ci)=>{
+    const catAll = QUESTIONS.filter(q=>q.category===c.key);
+    const target = Math.min(Math.round(targetTotal * c.weight/100), catAll.length);
+    const sataPool = seededShuffle(catAll.filter(q=>q.type==="sata"), seed + ci*101 + 3);
+    const singlePool = seededShuffle(catAll.filter(q=>q.type!=="sata"), seed + ci*101 + 7);
+    const leadSata = sataPool.slice(0, Math.min(1, target));
+    const remainingNeeded = target - leadSata.length;
+    const restPool = seededShuffle([...singlePool, ...sataPool.slice(1)], seed + ci*101 + 11);
+    selected.push(...leadSata, ...restPool.slice(0, remainingNeeded));
+  });
+  const usedIds = new Set(selected.map(q=>q.id));
+  if(selected.length < targetTotal){
+    const leftover = seededShuffle(QUESTIONS.filter(q=>!usedIds.has(q.id)), seed+999);
+    selected.push(...leftover.slice(0, targetTotal-selected.length));
+  }
+  return seededShuffle(selected, seed+555).slice(0, targetTotal);
+}
+
 /* ---------- Rendering: top bar ---------- */
 function renderRail(){
   const list = document.getElementById("railList");
   const note = document.getElementById("railNote");
   const bankSize = QUESTIONS.length;
-  const baseNote = `Weighted across all 8 categories per the NCSBN test plan. Each full length test currently pulls up to ${Math.min(105,bankSize)} questions.`;
+  note.innerHTML = "";
   if(authState.user && authState.profileError){
-    note.innerHTML = `${baseNote}<br><span style="color:var(--incorrect);font-weight:600;">${authState.profileError}</span>`;
-  } else if(authState.user && !hasActiveSubscription() && authState.profile){
-    const statusLine = authState.profile.free_mock_tests_used === 0
-      ? `<span style="color:var(--teal-600);font-weight:600;">You have 1 free mock test — pick any Full Length Test below to use it.</span>`
-      : `<span style="color:var(--ink-soft);">Your free mock test was used on Test ${String(authState.profile.free_test_unlocked_number).padStart(2,"0")}. <button class="link-btn" onclick="openUpgradeModal()">Upgrade</button> to unlock the rest.</span>`;
-    note.innerHTML = `${baseNote}<br>${statusLine}`;
-  } else {
-    note.innerHTML = baseNote;
+    note.innerHTML = `<span style="color:var(--incorrect);font-weight:600;font-size:12px;">${authState.profileError}</span>`;
   }
+
+  const freeProg = state.freeMockTestProgress;
+  const freeStatusClass = freeProg ? (freeProg.status==="done" ? "done":"progress") : "";
+  const freeLabel = freeProg && freeProg.status==="done" ? `${freeProg.score}%` : "";
+  const freeMockSection = `
+    <div class="rail-title">Free Mock Test</div>
+    <div class="rail-note" style="border-top:none;">85 questions, our most carefully explained content — completely free, just sign in to start.</div>
+    <button class="rail-btn rail-btn-free ${state.quizKey==="freemock"?"active":""}" onclick="startFreeMockTest()">
+      <span class="id mono" style="display:flex;flex-direction:column;line-height:1.35;">
+        <span style="font-size:8px;opacity:.75;letter-spacing:.05em;">⭐ FREE</span>
+        <span style="font-size:11.5px;">MOCK TEST</span>
+      </span>
+      <span style="display:flex;align-items:center;gap:6px;">
+        <span class="mono" style="font-size:10.5px;opacity:.8;">${freeLabel}</span>
+        <span class="status ${freeStatusClass}"></span>
+      </span>
+    </button>
+  `;
+
   const regularBtns = Array.from({length:30},(_,i)=>i+1).map(n=>{
     const key = "full-"+n;
     const active = state.quizKey===key ? "active":"";
@@ -2160,7 +2209,10 @@ function renderRail(){
     </button>`;
   }).join("");
 
-  list.innerHTML = regularBtns + `
+  list.innerHTML = freeMockSection + `
+    <div class="rail-title" style="margin-top:16px;">Full-Length Tests</div>
+    <div class="rail-note" style="border-top:none;">Weighted across all 8 categories per the NCSBN test plan. Each full length test currently pulls up to ${Math.min(105,bankSize)} questions.</div>
+  ` + regularBtns + `
     <div class="rail-title" style="margin-top:16px;">Hard Tests</div>
     <div class="rail-note" style="border-top:none;">50 questions per test, category-weighted.</div>
   ` + hardBtns;
@@ -2337,6 +2389,13 @@ function startHardTest(n){
   document.getElementById("quizOptionsTitle").textContent = "Hard Test "+n;
   document.getElementById("quizOptionsOverlay").style.display = "flex";
 }
+function startFreeMockTest(){
+  const access = freeMockTestAccessState();
+  if(access!=="open"){ openAuthModal("signin"); return; }
+  pendingStart = {kind:"freemock", key:null};
+  document.getElementById("quizOptionsTitle").textContent = "Free Mock Test";
+  document.getElementById("quizOptionsOverlay").style.display = "flex";
+}
 function closeQuizOptionsModal(){
   document.getElementById("quizOptionsOverlay").style.display = "none";
   pendingStart = null;
@@ -2347,29 +2406,11 @@ function confirmQuizMode(mode){
   closeQuizOptionsModal();
   if(!p) return;
   if(p.kind==="hard") actuallyStartHardTest(p.key);
+  else if(p.kind==="freemock") actuallyStartFreeMockTest();
   else actuallyStartFullTest(p.key);
 }
 
-async function actuallyStartFullTest(n){
-  if(!hasActiveSubscription()){
-    try{
-      const { data, error } = await sbClient.rpc("use_free_mock_test", { p_test_number:n });
-      if(error) throw error;
-      const result = data && data[0];
-      if(!result || !result.allowed){
-        await fetchProfile();
-        renderRail();
-        openUpgradeModal();
-        return;
-      }
-      await fetchProfile();
-      renderAccountWidget();
-    }catch(e){
-      console.error("Couldn't verify free test eligibility.", e);
-      alert("Something went wrong checking your account access — please try again.");
-      return;
-    }
-  }
+function actuallyStartFullTest(n){
   const qs = buildFullTest(n);
   state.view="quiz"; state.quizKey="full-"+n; state.quizType="full"; state.quizTitle="Full Length Test "+n;
   state.testNumberForRetake = n;
@@ -2386,6 +2427,17 @@ function actuallyStartHardTest(n){
   state.testNumberForRetake = n;
   state.questions=qs; state.index=0; state.answers=[]; state.locked=false; state.selectedSata=new Set();
   state.hardTestProgress[n] = {status:"progress"};
+  renderRail();
+  startQuizTimer();
+  renderQuestion();
+}
+
+function actuallyStartFreeMockTest(){
+  const qs = buildFreeMockTest();
+  state.view="quiz"; state.quizKey="freemock"; state.quizType="freemock"; state.quizTitle="Free Mock Test";
+  state.testNumberForRetake = null;
+  state.questions=qs; state.index=0; state.answers=[]; state.locked=false; state.selectedSata=new Set();
+  state.freeMockTestProgress = {status:"progress"};
   renderRail();
   startQuizTimer();
   renderQuestion();
@@ -2780,6 +2832,9 @@ function showResults(){
   } else if(state.quizType==="hard"){
     state.hardTestProgress[state.testNumberForRetake] = {status:"done", score:pct};
     renderRail();
+  } else if(state.quizType==="freemock"){
+    state.freeMockTestProgress = {status:"done", score:pct};
+    renderRail();
   }
 
   const byCat = {};
@@ -2823,8 +2878,9 @@ function showResults(){
 
   const retakeAction = state.quizType==="full" ? `startFullTest(${state.testNumberForRetake})`
     : state.quizType==="hard" ? `startHardTest(${state.testNumberForRetake})`
+    : state.quizType==="freemock" ? `startFreeMockTest()`
     : `openCustomTestModal()`;
-  const retakeLabel = (state.quizType==="full" || state.quizType==="hard") ? "Retake" : "Create another test";
+  const retakeLabel = (state.quizType==="full" || state.quizType==="hard" || state.quizType==="freemock") ? "Retake" : "Create another test";
 
   document.getElementById("main").innerHTML = `
     <div class="card">
@@ -3196,7 +3252,7 @@ async function searchAdminUser(){
     resultEl.innerHTML = `
       <div style="border:1px solid var(--line);border-radius:9px;padding:14px;">
         <div style="font-weight:600;margin-bottom:4px;">${data.full_name || data.email}</div>
-        <div style="font-size:12px;color:var(--ink-soft);margin-bottom:12px;">${data.email} · Free tests used: ${data.free_mock_tests_used}${data.free_test_unlocked_number ? " (Test "+data.free_test_unlocked_number+")" : ""}</div>
+        <div style="font-size:12px;color:var(--ink-soft);margin-bottom:12px;">${data.email}</div>
         <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:10px;">
           <select id="grantTier">
             <option value="free" ${data.subscription_tier==="free"?"selected":""}>Free (no subscription)</option>
@@ -3207,8 +3263,7 @@ async function searchAdminUser(){
           <input type="date" id="grantExpiry" value="${expiryStr}" style="border:1px solid var(--line);border-radius:6px;padding:7px 8px;">
           <button type="button" class="btn" onclick="grantAdminUserAccess('${data.id}')">Save access</button>
         </div>
-        <button type="button" class="link-btn" onclick="resetAdminUserFreeTest('${data.id}')">Reset free mock test</button>
-        <span id="adminUserActionMsg" style="font-size:11.5px;color:var(--teal-600);margin-left:8px;"></span>
+        <span id="adminUserActionMsg" style="font-size:11.5px;color:var(--teal-600);"></span>
       </div>
     `;
   }catch(e){
@@ -3230,19 +3285,6 @@ async function grantAdminUserAccess(userId){
     console.error("Couldn't grant access.", e);
     msgEl.style.color = "var(--incorrect)";
     msgEl.textContent = "Couldn't save — try again.";
-  }
-}
-async function resetAdminUserFreeTest(userId){
-  const msgEl = document.getElementById("adminUserActionMsg");
-  try{
-    const { error } = await sbClient.from("profiles").update({ free_mock_tests_used:0, free_test_unlocked_number:null }).eq("id", userId);
-    if(error) throw error;
-    msgEl.textContent = "Free test reset ✓";
-    setTimeout(()=>{ msgEl.textContent=""; }, 2000);
-  }catch(e){
-    console.error("Couldn't reset free test.", e);
-    msgEl.style.color = "var(--incorrect)";
-    msgEl.textContent = "Couldn't reset — try again.";
   }
 }
 
