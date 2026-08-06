@@ -365,8 +365,8 @@
       <div style="margin-top:14px;">
         <div class="mono" style="font-size:11px;color:var(--ink-soft);margin-bottom:8px;text-transform:uppercase;letter-spacing:.05em;">Answer feedback</div>
         <div style="display:flex;gap:8px;">
-          <button class="btn secondary feedback-choice active" id="ctFeedbackImmediate" style="flex:1;" onclick="setCustomTestFeedback('immediate')">Immediately after each question</button>
-          <button class="btn secondary feedback-choice" id="ctFeedbackEnd" style="flex:1;" onclick="setCustomTestFeedback('end')">Only at the end</button>
+          <button class="btn secondary feedback-choice active" id="ctFeedbackImmediate" style="flex:1;line-height:1.4;" onclick="setCustomTestFeedback('immediate')">Learning Mode<br><span style="font-weight:400;font-size:10.5px;opacity:.85;">(immediately after each question)</span></button>
+          <button class="btn secondary feedback-choice" id="ctFeedbackEnd" style="flex:1;line-height:1.4;" onclick="setCustomTestFeedback('end')">Exam Mode<br><span style="font-weight:400;font-size:10.5px;opacity:.85;">(at the end)</span></button>
         </div>
       </div>
       <button class="btn" id="customTestStartBtn" style="width:100%;margin-top:16px;" onclick="startCustomTest()" disabled>Select at least 1 question to start</button>
@@ -461,17 +461,23 @@
   <div class="auth-overlay" id="upgradeOverlay" style="display:none;">
     <div class="auth-modal upgrade-modal">
       <button class="auth-close" id="upgradeCloseBtn" aria-label="Close">×</button>
-      <h3 style="margin:0 0 4px;font-size:17px;">Upgrade to keep going</h3>
-      <p style="font-size:12.5px;color:var(--ink-soft);margin:0 0 16px;">Your free mock test is used, or this is a premium feature. Pick a plan below, or enter a promo code if you have one.</p>
-      <div id="pricingCards" class="pricing-cards"></div>
-      <div class="auth-field" style="margin-top:16px;">
-        <label>Have a promo code?</label>
-        <div style="display:flex;gap:8px;">
-          <input type="text" id="promoCodeInput" placeholder="Enter code" style="flex:1;">
-          <button type="button" class="btn" style="flex-shrink:0;" onclick="applyPromoCode()">Apply</button>
-        </div>
+      <h3 id="upgradeTitle" style="margin:0 0 4px;font-size:17px;">Upgrade to keep going</h3>
+      <p id="upgradeSubtitle" style="font-size:12.5px;color:var(--ink-soft);margin:0 0 16px;">Your free mock test is used, or this is a premium feature. Pick a plan below, or enter a promo code if you have one.</p>
+      <div id="upgradeLoginBanner" style="display:none;background:var(--teal-100);border-radius:8px;padding:12px 14px;margin-bottom:16px;font-size:12.5px;color:var(--teal-900);">
+        You'll need an account to get started — it only takes a minute, and it's how your free mock test and results history work.
+        <button type="button" class="btn" style="display:block;width:100%;margin-top:10px;font-size:12.5px;padding:8px;" onclick="closeUpgradeModal(); openAuthModal('signup');">Log in / Sign up</button>
       </div>
-      <div id="promoMessage" style="font-size:12.5px;margin-top:6px;"></div>
+      <div id="pricingCards" class="pricing-cards"></div>
+      <div id="upgradePromoSection">
+        <div class="auth-field" style="margin-top:16px;">
+          <label>Have a promo code?</label>
+          <div style="display:flex;gap:8px;">
+            <input type="text" id="promoCodeInput" placeholder="Enter code" style="flex:1;">
+            <button type="button" class="btn" style="flex-shrink:0;" onclick="applyPromoCode()">Apply</button>
+          </div>
+        </div>
+        <div id="promoMessage" style="font-size:12.5px;margin-top:6px;"></div>
+      </div>
     </div>
   </div>
 
@@ -482,10 +488,10 @@
       <p style="font-size:13px;color:var(--ink-soft);margin:0 0 18px;">How do you want to see answers?</p>
       <div style="display:flex;flex-direction:column;gap:10px;">
         <button class="btn" style="width:100%;text-align:left;" onclick="confirmQuizMode('immediate')">
-          Immediately after each question<br><span style="font-weight:400;font-size:11.5px;opacity:.85;">See correct/incorrect + rationale right away — best for learning as you go</span>
+          Learning Mode <span style="font-weight:400;">(immediately after each question)</span><br><span style="font-weight:400;font-size:11.5px;opacity:.85;">See correct/incorrect + rationale right away — best for learning as you go</span>
         </button>
         <button class="btn secondary" style="width:100%;text-align:left;border-width:1.5px;" onclick="confirmQuizMode('end')">
-          Only at the end of the test<br><span style="font-weight:400;font-size:11.5px;opacity:.85;">Answer all questions blind, then review everything at once — closer to real exam conditions</span>
+          Exam Mode <span style="font-weight:400;">(at the end)</span><br><span style="font-weight:400;font-size:11.5px;opacity:.85;">Answer all questions blind, then review everything at once — closer to real exam conditions</span>
         </button>
       </div>
     </div>
@@ -547,7 +553,7 @@ if(supabaseConfigured && window.supabase){
    (no localStorage is used here), so guest history isn't recoverable
    across visits — only signed-in students get durable history.
    ========================================================================= */
-const authState = { user:null, guestId:null, profile:null };
+const authState = { user:null, guestId:null, profile:null, profileError:null };
 let authMode = "signin";
 
 function newGuestId(){
@@ -575,23 +581,37 @@ async function applySession(session){
   authState.guestId = null;
   await fetchProfile();
   renderAccountWidget();
+  if(document.getElementById("railList")) renderRail();
 }
 async function fetchProfile(){
   if(!sbClient || !authState.user) return;
+  authState.profileError = null;
   try{
-    const { data, error } = await sbClient.from("profiles").select("*").eq("id", authState.user.id).single();
+    let { data, error } = await sbClient.from("profiles").select("*").eq("id", authState.user.id).maybeSingle();
     if(error) throw error;
-    authState.profile = data;
+    if(!data){
+      // No row yet — self-heal via the safe RPC, then try the select again.
+      const { error: healErr } = await sbClient.rpc("ensure_profile_exists");
+      if(healErr) throw healErr;
+      const retry = await sbClient.from("profiles").select("*").eq("id", authState.user.id).maybeSingle();
+      if(retry.error) throw retry.error;
+      data = retry.data;
+    }
+    authState.profile = data || null;
+    if(!authState.profile) authState.profileError = "Your account is set up, but we couldn't load your access details. Please refresh, or contact support if this keeps happening.";
   }catch(e){
     console.error("Couldn't load profile — subscription/free-test status may be unavailable.", e);
     authState.profile = null;
+    authState.profileError = "Couldn't load your account access details (" + (e.message || "unknown error") + "). Please refresh, or contact support if this keeps happening.";
   }
 }
 function clearSession(){
   authState.user = null;
   authState.profile = null;
+  authState.profileError = null;
   authState.guestId = newGuestId();
   renderAccountWidget();
+  if(document.getElementById("railList")) renderRail();
 }
 function hasActiveSubscription(){
   const p = authState.profile;
@@ -2079,7 +2099,17 @@ function renderRail(){
   const list = document.getElementById("railList");
   const note = document.getElementById("railNote");
   const bankSize = QUESTIONS.length;
-  note.innerHTML = `Weighted across all 8 categories per the NCSBN test plan. Each full length test currently pulls up to ${Math.min(105,bankSize)} questions.`;
+  const baseNote = `Weighted across all 8 categories per the NCSBN test plan. Each full length test currently pulls up to ${Math.min(105,bankSize)} questions.`;
+  if(authState.user && authState.profileError){
+    note.innerHTML = `${baseNote}<br><span style="color:var(--incorrect);font-weight:600;">${authState.profileError}</span>`;
+  } else if(authState.user && !hasActiveSubscription() && authState.profile){
+    const statusLine = authState.profile.free_mock_tests_used === 0
+      ? `<span style="color:var(--teal-600);font-weight:600;">You have 1 free mock test — pick any Full Length Test below to use it.</span>`
+      : `<span style="color:var(--ink-soft);">Your free mock test was used on Test ${String(authState.profile.free_test_unlocked_number).padStart(2,"0")}. <button class="link-btn" onclick="openUpgradeModal()">Upgrade</button> to unlock the rest.</span>`;
+    note.innerHTML = `${baseNote}<br>${statusLine}`;
+  } else {
+    note.innerHTML = baseNote;
+  }
   const regularBtns = Array.from({length:30},(_,i)=>i+1).map(n=>{
     const key = "full-"+n;
     const active = state.quizKey===key ? "active":"";
@@ -2088,7 +2118,7 @@ function renderRail(){
     const label = prog && prog.status==="done" ? `${prog.score}%` : "";
     const access = fullTestAccessState(n);
     const locked = access !== "open";
-    const clickHandler = access==="open" ? `startFullTest(${n})` : access==="login" ? `openAuthModal('signin')` : `openUpgradeModal()`;
+    const clickHandler = access==="open" ? `startFullTest(${n})` : `openUpgradeModal()`;
     const lockBadge = access==="login" ? "🔒" : access==="upgrade" ? "⭐" : "";
     return `<button class="rail-btn ${active} ${locked?'rail-btn-locked':''}" onclick="${clickHandler}">
       <span class="id mono" style="display:flex;flex-direction:column;line-height:1.35;">
@@ -2104,7 +2134,7 @@ function renderRail(){
 
   const hardAccess = hardTestAccessState();
   const hardLocked = hardAccess !== "open";
-  const hardClickHandler = hardAccess==="open" ? null : hardAccess==="login" ? `openAuthModal('signin')` : `openUpgradeModal()`;
+  const hardClickHandler = hardAccess==="open" ? null : `openUpgradeModal()`;
   const hardLockBadge = hardAccess==="login" ? "🔒" : hardAccess==="upgrade" ? "⭐" : "";
   const hardBtns = Array.from({length:7},(_,i)=>i+1).map(n=>{
     const key = "hard-"+n;
@@ -2281,16 +2311,14 @@ async function backToKeyConcepts(catKey){
 let pendingStart = null;
 function startFullTest(n){
   const access = fullTestAccessState(n);
-  if(access==="login"){ openAuthModal("signin"); return; }
-  if(access==="upgrade"){ openUpgradeModal(); return; }
+  if(access!=="open"){ openUpgradeModal(); return; }
   pendingStart = {kind:"full", key:n};
   document.getElementById("quizOptionsTitle").textContent = "Full Length Test "+n;
   document.getElementById("quizOptionsOverlay").style.display = "flex";
 }
 function startHardTest(n){
   const access = hardTestAccessState();
-  if(access==="login"){ openAuthModal("signin"); return; }
-  if(access==="upgrade"){ openUpgradeModal(); return; }
+  if(access!=="open"){ openUpgradeModal(); return; }
   const hardCount = QUESTIONS.filter(q=>q.difficulty==="hard").length;
   if(hardCount===0){
     alert("Hard Tests aren't set up yet — run the tag-hard-questions.sql script in Supabase first, then reload the page.");
@@ -2367,8 +2395,7 @@ function customTestDropdownOptions(available){
 }
 
 function openCustomTestModal(){
-  if(!authState.user){ openAuthModal("signin"); return; }
-  if(!hasActiveSubscription()){ openUpgradeModal(); return; }
+  if(!authState.user || !hasActiveSubscription()){ openUpgradeModal(); return; }
   customTestSelections = {};
   customTestFeedbackMode = "immediate";
   document.getElementById("ctFeedbackImmediate").classList.add("active");
@@ -2856,6 +2883,13 @@ async function loadPricing(forceRefresh){
   return pricingCache;
 }
 async function openUpgradeModal(){
+  const loggedIn = !!authState.user;
+  document.getElementById("upgradeLoginBanner").style.display = loggedIn ? "none" : "block";
+  document.getElementById("upgradePromoSection").style.display = loggedIn ? "block" : "none";
+  document.getElementById("upgradeTitle").textContent = loggedIn ? "Upgrade to keep going" : "This test needs an account";
+  document.getElementById("upgradeSubtitle").textContent = loggedIn
+    ? "Your free mock test is used, or this is a premium feature. Pick a plan below, or enter a promo code if you have one."
+    : "Here's what's included — log in or sign up first, then come back to any of these plans (or your free mock test) whenever you're ready.";
   document.getElementById("promoCodeInput").value = "";
   document.getElementById("promoMessage").textContent = "";
   const pricing = await loadPricing();
