@@ -477,7 +477,7 @@
     </div>
   </div>
 
-  <div class="auth-overlay" id="upgradeOverlay" style="display:none;">
+  <div class="auth-overlay" id="upgradeOverlay" style="display:none;z-index:110;">
     <div class="auth-modal upgrade-modal">
       <button class="auth-close" id="upgradeCloseBtn" aria-label="Close">×</button>
       <h3 id="upgradeTitle" style="margin:0 0 4px;font-size:17px;">Upgrade to keep going</h3>
@@ -2488,7 +2488,6 @@ function customTestDropdownOptions(available){
 }
 
 function openCustomTestModal(){
-  if(!authState.user || !hasActiveSubscription()){ openUpgradeModal(); return; }
   customTestSelections = {};
   customTestFeedbackMode = "immediate";
   document.getElementById("ctFeedbackImmediate").classList.add("active");
@@ -2510,6 +2509,11 @@ function openCustomTestModal(){
   }).join("");
   updateCustomTestTotal();
   document.getElementById("customTestOverlay").style.display = "flex";
+  // Locked users still see the real builder rendered behind the paywall —
+  // a visible, tempting preview of exactly what they'd get, rather than a
+  // blank wall. The upgrade modal sits on top and blocks interaction with
+  // it, same as it would with any other locked feature.
+  if(!authState.user || !hasActiveSubscription()){ openUpgradeModal(); }
 }
 function closeCustomTestModal(){
   document.getElementById("customTestOverlay").style.display = "none";
@@ -2547,6 +2551,7 @@ async function getNextCustomTestNumber(){
 }
 
 async function startCustomTest(){
+  if(!authState.user || !hasActiveSubscription()){ closeCustomTestModal(); openUpgradeModal(); return; }
   const total = Object.values(customTestSelections).reduce((a,b)=>a+b,0);
   if(total===0) return;
   const btn = document.getElementById("customTestStartBtn");
@@ -2844,22 +2849,40 @@ function nextQuestion(){
 
 /* Post-test summary — entirely rule-based, computed from the score/category/
    timing data already collected. No AI/LLM call involved, so it's instant,
-   free, and doesn't depend on any external service being available. */
-function generateSummaryCommentary(byCat, total, correct, pct, totalTimeSeconds, avgSecPerQ){
+   free, and doesn't depend on any external service being available.
+   Skipped questions are deliberately excluded from the category and pacing
+   commentary below (both draw only on byCat's "answered" count and the
+   already-filtered timeSum/timeCount) — otherwise a heavily skipped test
+   would silently drag the pace average toward zero and make "barely
+   attempted" look like "answered quickly and confidently," which is exactly
+   backwards. */
+function generateSummaryCommentary(byCat, total, correct, skippedCount, answeredCount, pct, totalTimeSeconds, avgSecPerQ){
   const catArray = Object.entries(byCat)
     .map(([key,v])=>({
       key, label: CAT[key] ? CAT[key].label : key,
-      accuracy: v.total ? Math.round((v.correct/v.total)*100) : 0,
+      accuracy: v.answered ? Math.round((v.correct/v.answered)*100) : 0,
       total: v.total,
+      answered: v.answered,
       avgTime: v.timeCount ? Math.round(v.timeSum/v.timeCount) : null
     }))
-    .filter(c=>c.total>=2); // only call out categories with enough questions to mean something
+    .filter(c=>c.answered>=2); // only call out categories with enough ANSWERED questions to mean something
 
   const lines = [];
+  const skipRate = total ? skippedCount/total : 0;
+
+  if(skipRate>=0.5){
+    lines.push(`You skipped ${skippedCount} of ${total} questions — with that much of the test unanswered, there isn't enough signal here to say much about accuracy by section or pacing. If it's worth revisiting, retaking this with more questions actually answered will give you a far more useful read.`);
+    if(answeredCount>0) lines.push(`Of the ${answeredCount} you did answer, ${correct} were correct.`);
+    return lines.join(" ");
+  }
 
   if(pct>=80) lines.push(`Strong showing — ${pct}% accuracy is solidly in passing territory. Keep this level of consistency going into test day.`);
   else if(pct>=65) lines.push(`Solid result at ${pct}% accuracy — you're in a workable range, with some clear room to tighten up before the real thing.`);
   else lines.push(`This one was a tougher run — ${pct}% accuracy means there's real ground still to cover before you're exam-ready, and that's exactly what practice like this is for.`);
+
+  if(skipRate>=0.15){
+    lines.push(`You also skipped ${skippedCount} of ${total} questions, so treat the section and pacing notes below as based on a partial picture, not the full test.`);
+  }
 
   if(catArray.length>=2){
     const sorted = [...catArray].sort((a,b)=>b.accuracy-a.accuracy);
@@ -2871,18 +2894,18 @@ function generateSummaryCommentary(byCat, total, correct, pct, totalTimeSeconds,
     }
   }
 
-  if(totalTimeSeconds && total){
+  if(answeredCount>=3 && avgSecPerQ>0){
     if(state.feedbackMode==="end"){
       const budgetSecPerQ = 120;
       if(avgSecPerQ <= budgetSecPerQ*0.7){
-        lines.push(`You averaged ${formatHMS(avgSecPerQ)} per question — comfortably ahead of the ~2 min/question NCLEX pace. If accuracy is lagging, it may be worth slowing down slightly rather than speeding through.`);
+        lines.push(`On the questions you answered, you averaged ${formatHMS(avgSecPerQ)} each — comfortably ahead of the ~2 min/question NCLEX pace. If accuracy is lagging, it may be worth slowing down slightly rather than speeding through.`);
       } else if(avgSecPerQ <= budgetSecPerQ*1.15){
-        lines.push(`You averaged ${formatHMS(avgSecPerQ)} per question — right in line with the real exam's ~2 min/question pace.`);
+        lines.push(`On the questions you answered, you averaged ${formatHMS(avgSecPerQ)} each — right in line with the real exam's ~2 min/question pace.`);
       } else {
-        lines.push(`You averaged ${formatHMS(avgSecPerQ)} per question — slower than the ~2 min/question NCLEX pace. Worth practicing more Exam Mode runs specifically to build speed under time pressure.`);
+        lines.push(`On the questions you answered, you averaged ${formatHMS(avgSecPerQ)} each — slower than the ~2 min/question NCLEX pace. Worth practicing more Exam Mode runs specifically to build speed under time pressure.`);
       }
     } else {
-      lines.push(`You spent an average of ${formatHMS(avgSecPerQ)} per question — normal for Learning Mode, where reading each rationale is part of the point.`);
+      lines.push(`On the questions you answered, you spent an average of ${formatHMS(avgSecPerQ)} each — normal for Learning Mode, where reading each rationale is part of the point.`);
     }
   }
 
@@ -2916,14 +2939,17 @@ function showResults(){
 
   const byCat = {};
   state.questions.forEach((q,i)=>{
-    byCat[q.category] = byCat[q.category] || {correct:0,total:0,skipped:0,timeSum:0,timeCount:0};
+    byCat[q.category] = byCat[q.category] || {correct:0,total:0,skipped:0,answered:0,timeSum:0,timeCount:0};
     byCat[q.category].total++;
     const a = state.answers[i];
     if(a && a.status==="correct") byCat[q.category].correct++;
     if(a && a.status==="skipped") byCat[q.category].skipped++;
-    if(a && typeof a.timeSpentSeconds==="number"){
-      byCat[q.category].timeSum += a.timeSpentSeconds;
-      byCat[q.category].timeCount++;
+    if(a && (a.status==="correct" || a.status==="incorrect")){
+      byCat[q.category].answered++;
+      if(typeof a.timeSpentSeconds==="number"){
+        byCat[q.category].timeSum += a.timeSpentSeconds;
+        byCat[q.category].timeCount++;
+      }
     }
   });
   const catRows = Object.entries(byCat).map(([key,v])=>{
@@ -2962,8 +2988,12 @@ function showResults(){
     : state.quizType==="freemock" ? `startFreeMockTest()`
     : `openCustomTestModal()`;
   const retakeLabel = (state.quizType==="full" || state.quizType==="hard" || state.quizType==="freemock") ? "Retake" : "Create another test";
-  const avgSecPerQ = (totalTimeSeconds && total) ? Math.round(totalTimeSeconds/total) : 0;
-  const summaryCommentary = generateSummaryCommentary(byCat, total, correct, pct, totalTimeSeconds, avgSecPerQ);
+  const answeredCount = correct + incorrect;
+  const answeredTimeSum = state.answers
+    .filter(a=>(a.status==="correct" || a.status==="incorrect") && typeof a.timeSpentSeconds==="number")
+    .reduce((sum,a)=>sum+a.timeSpentSeconds, 0);
+  const avgSecPerQ = answeredCount ? Math.round(answeredTimeSum/answeredCount) : 0;
+  const summaryCommentary = generateSummaryCommentary(byCat, total, correct, skipped, answeredCount, pct, totalTimeSeconds, avgSecPerQ);
 
   document.getElementById("main").innerHTML = `
     <div class="card">
