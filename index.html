@@ -300,6 +300,16 @@
   .calc-input{border:2px solid var(--line);border-radius:8px;padding:12px 14px;font-size:20px;font-family:'IBM Plex Mono',monospace;width:160px;color:var(--ink);}
   .calc-input:focus{outline:none;border-color:var(--teal-600);}
   .calc-unit{font-size:15px;color:var(--ink-soft);font-weight:600;}
+  .cloze-note{font-size:12px;color:var(--blue);font-weight:600;margin:-10px 0 14px;font-family:'IBM Plex Mono',monospace;}
+  .cloze-passage{font-size:16px;line-height:2.2;color:var(--ink);margin-bottom:16px;}
+  .cloze-select{
+    display:inline-block;font-family:'IBM Plex Mono',monospace;font-size:14px;font-weight:600;
+    padding:4px 8px;margin:0 3px;border:2px solid var(--blue);border-radius:6px;
+    background:var(--teal-100);color:var(--teal-900);cursor:pointer;vertical-align:baseline;
+  }
+  .cloze-select:disabled{cursor:default;opacity:.9;}
+  .cloze-select.cloze-correct{border-color:var(--correct);background:var(--correct-bg);color:var(--correct);}
+  .cloze-select.cloze-incorrect{border-color:var(--incorrect);background:var(--incorrect-bg);color:var(--incorrect);}
   .options{display:flex;flex-direction:column;gap:9px;margin-bottom:6px;}
   .opt{
     display:flex;align-items:flex-start;gap:12px;
@@ -330,6 +340,7 @@
   }
   .feedback-banner.good{background:var(--correct-bg);color:var(--correct);}
   .feedback-banner.bad{background:var(--incorrect-bg);color:var(--incorrect);}
+  .feedback-banner.partial{background:var(--gold-100);color:var(--gold);}
   .stamp{
     font-family:'IBM Plex Mono',monospace;font-size:11px;font-weight:600;letter-spacing:.05em;
     border:2px solid currentColor;border-radius:5px;padding:3px 9px;transform:rotate(-3deg);
@@ -902,7 +913,7 @@ async function toggleHistoryDetail(resultId){
   }
 
   const items = historyCache[resultId];
-  const icon = {correct:"✓", incorrect:"✗", skipped:"⏭"};
+  const icon = {correct:"✓", partial:"◐", incorrect:"✗", skipped:"⏭"};
   detailEl.innerHTML = `<div style="margin-top:10px;display:flex;flex-direction:column;gap:8px;">` +
     items.map(a=>{
       const q = a.question;
@@ -2330,7 +2341,8 @@ async function loadQuestionBank(){
           stem:r.stem, options:r.options, correct:r.correct, explain:r.explain,
           difficulty:r.difficulty || "medium",
           difficultyLevel: r.difficulty_level || 3,
-          tolerance: r.tolerance, unit: r.unit
+          tolerance: r.tolerance, unit: r.unit,
+          clozeText: r.cloze_text, clozeBlanks: r.cloze_blanks
         }));
       }
     }catch(e){
@@ -2624,6 +2636,18 @@ function renderRail(){
     </button>
   ` : "";
 
+  const clozeQuestionCount = QUESTIONS.filter(q=>q.type==="cloze").length;
+  const clozeSection = clozeQuestionCount ? `
+    <div class="rail-title" style="margin-top:16px;">Cloze Practice</div>
+    <div class="rail-note" style="border-top:none;">Drop-down fill-in-the-blank questions — complete clinical statements by choosing the right word or phrase from each dropdown. ${clozeQuestionCount} questions so far, growing toward a full set.</div>
+    <button class="rail-btn ${state.quizKey==="clozepractice"?"active":""}" onclick="startClozePractice()">
+      <span class="id mono">▾ CLOZE PRACTICE</span>
+      <span style="display:flex;align-items:center;gap:6px;">
+        <span class="mono" style="font-size:10.5px;opacity:.8;">${clozeQuestionCount} Qs</span>
+      </span>
+    </button>
+  ` : "";
+
   const caseAccess = caseStudyAccessState();
   const caseLocked = caseAccess !== "open";
   const caseLockBadge = caseLocked ? LOCK_ICON : "";
@@ -2656,7 +2680,7 @@ function renderRail(){
   ` + regularBtns + `
     <div class="rail-title" style="margin-top:16px;">Hard Tests</div>
     <div class="rail-note" style="border-top:none;">50 questions per test, category-weighted.</div>
-  ` + hardBtns + adaptiveSection + calcSection + caseSection;
+  ` + hardBtns + adaptiveSection + calcSection + clozeSection + caseSection;
 }
 function renderSessionScore(){
   document.getElementById("sessionScore").textContent = `${state.sessionCorrect} / ${state.sessionTotal} correct this session`;
@@ -2877,6 +2901,14 @@ function startCalcPractice(){
   document.getElementById("quizOptionsTitle").textContent = "Calculation Practice";
   document.getElementById("quizOptionsOverlay").style.display = "flex";
 }
+function startClozePractice(){
+  if(!authState.user){ document.getElementById("authOverlay").style.display = "flex"; return; }
+  const clozeQuestions = QUESTIONS.filter(q=>q.type==="cloze");
+  if(clozeQuestions.length===0){ alert("No cloze questions are available right now — please try again shortly."); return; }
+  pendingStart = {kind:"clozepractice", key:null};
+  document.getElementById("quizOptionsTitle").textContent = "Cloze Practice";
+  document.getElementById("quizOptionsOverlay").style.display = "flex";
+}
 function closeQuizOptionsModal(){
   document.getElementById("quizOptionsOverlay").style.display = "none";
   pendingStart = null;
@@ -2891,11 +2923,21 @@ function confirmQuizMode(mode){
   else if(p.kind==="adaptive") actuallyStartAdaptiveTest();
   else if(p.kind==="casestudy") actuallyStartCaseStudy(p.key);
   else if(p.kind==="calcpractice") actuallyStartCalcPractice();
+  else if(p.kind==="clozepractice") actuallyStartClozePractice();
   else actuallyStartFullTest(p.key);
 }
 function actuallyStartCalcPractice(){
   const qs = shuffle(QUESTIONS.filter(q=>q.type==="calc"));
   state.view="quiz"; state.quizKey="calcpractice"; state.quizType="calcpractice"; state.quizTitle="Calculation Practice";
+  state.testNumberForRetake = null;
+  state.questions=qs; state.index=0; state.answers=[]; state.locked=false; state.selectedSata=new Set();
+  renderRail();
+  startQuizTimer();
+  renderQuestion();
+}
+function actuallyStartClozePractice(){
+  const qs = shuffle(QUESTIONS.filter(q=>q.type==="cloze"));
+  state.view="quiz"; state.quizKey="clozepractice"; state.quizType="clozepractice"; state.quizTitle="Cloze Practice";
   state.testNumberForRetake = null;
   state.questions=qs; state.index=0; state.answers=[]; state.locked=false; state.selectedSata=new Set();
   renderRail();
@@ -3153,6 +3195,7 @@ function renderQuestion(){
   const pct = Math.round((state.index/state.questions.length)*100);
   const isSata = q.type==="sata";
   const isCalc = q.type==="calc";
+  const isCloze = q.type==="cloze";
   const isCaseStudy = state.quizType==="casestudy";
   const scenarioPanel = isCaseStudy ? `
     <div class="case-scenario-panel">
@@ -3178,6 +3221,7 @@ function renderQuestion(){
     <span class="cat-tag" style="background:${c.color}">${c.label} · ${q.subtopic}</span>
     <p class="stem">${q.stem}</p>
     ${isSata ? `<div class="sata-note">SELECT ALL THAT APPLY</div>`:""}
+    ${isCloze ? `<div class="cloze-note">SELECT AN OPTION FOR EACH BLANK</div>` : ""}
     ${isCalc ? `
       <div class="calc-input-wrap">
         <label for="calcAnswerInput" class="mono" style="font-size:11px;color:var(--ink-soft);text-transform:uppercase;letter-spacing:.05em;">Your Answer</label>
@@ -3187,6 +3231,9 @@ function renderQuestion(){
         </div>
       </div>
       <div class="submit-row"><button class="btn" id="calcSubmitBtn" onclick="submitCalcAnswer()">Check Answer</button></div>
+    ` : isCloze ? `
+      <div class="cloze-passage" id="clozePassage">${renderClozeContent(q)}</div>
+      <div class="submit-row"><button class="btn" id="clozeSubmitBtn" onclick="submitClozeAnswer()">Check Answer</button></div>
     ` : `
       <div class="options" id="optionsWrap">
         ${q.options.map(o=>`
@@ -3212,6 +3259,7 @@ function renderRecap(){
       <span><b>${a.subtopic}</b> — ${a.concept}</span>
     </div>`).join("");
   const correctCount = last10.filter(a=>a.status==="correct").length;
+  const partialCount = last10.filter(a=>a.status==="partial").length;
   document.getElementById("main").innerHTML = `
     <div class="quiz-header" style="margin-bottom:8px;">
       <div class="quiz-header-left"><span class="quiz-title">${state.quizTitle}</span></div>
@@ -3220,7 +3268,7 @@ function renderRecap(){
     <div class="card">
       <div class="recap-icon">⚡</div>
       <h2 style="margin:0 0 4px;">Quick Check — last 10 questions</h2>
-      <p style="color:var(--ink-soft);font-size:13.5px;margin:0 0 4px;">You got ${correctCount} of ${last10.length} correct. Key concepts just covered:</p>
+      <p style="color:var(--ink-soft);font-size:13.5px;margin:0 0 4px;">You got ${correctCount} of ${last10.length} correct${partialCount ? ` (plus ${partialCount} with partial credit)` : ""}. Key concepts just covered:</p>
       <div class="recap-list">${items}</div>
       <button class="btn" onclick="continueAfterRecap()">Continue</button>
     </div>
@@ -3260,15 +3308,31 @@ function toggleSata(key){
   if(state.selectedSata.has(key)){ state.selectedSata.delete(key); btn.classList.remove("chosen"); }
   else { state.selectedSata.add(key); btn.classList.add("chosen"); }
 }
+/* SATA scoring uses NCSBN's actual "+/- scoring rule" for Multiple Response
+   items: +1 point for each correct option selected, -1 point for each
+   incorrect option selected, summed and floored at 0, out of a maximum
+   equal to the number of correct options. This is the real mechanism the
+   NGN uses (confirmed directly by NCSBN) — not an approximation — so a
+   response with some but not all correct options selected, and no wrong
+   ones, earns real partial credit instead of being marked simply wrong. */
 function submitSata(){
   if(state.locked) return;
   if(state.selectedSata.size===0) return;
   state.locked = true;
   const q = state.questions[state.index];
   const chosen = Array.from(state.selectedSata).sort();
-  const correctSet = q.correct.slice().sort();
-  const status = JSON.stringify(chosen)===JSON.stringify(correctSet) ? "correct" : "incorrect";
-  recordAnswer(q, status, chosen);
+  const correctSet = new Set(q.correct);
+  let correctSelected = 0, incorrectSelected = 0;
+  state.selectedSata.forEach(k=>{ if(correctSet.has(k)) correctSelected++; else incorrectSelected++; });
+  const maxPoints = correctSet.size;
+  const rawPoints = correctSelected - incorrectSelected;
+  const flooredPoints = Math.max(0, rawPoints);
+  const fraction = maxPoints > 0 ? flooredPoints / maxPoints : 0;
+  const status = fraction===1 ? "correct" : fraction===0 ? "incorrect" : "partial";
+  const weightedPoints = Math.round(fraction * 2 * 10) / 10; // scaled to the app's existing 2-pts-per-question convention
+  recordAnswer(q, status, chosen, weightedPoints);
+  const sataDetail = { correctSelected, incorrectSelected, maxPoints, flooredPoints, weightedPoints };
+  state.answers[state.answers.length-1].sataDetail = sataDetail;
   if(state.feedbackMode==="immediate"){
     document.querySelectorAll("#optionsWrap .opt").forEach(btn=>{
       btn.classList.add("locked");
@@ -3279,7 +3343,7 @@ function submitSata(){
       else if(isCorrectKey && !wasChosen) btn.classList.add("missed");
       else if(!isCorrectKey && wasChosen) btn.classList.add("incorrect");
     });
-    renderFeedback(q, status);
+    renderFeedback(q, status, sataDetail);
   } else {
     document.querySelectorAll("#optionsWrap .opt").forEach(btn=>btn.classList.add("locked"));
     renderDeferredFeedback();
@@ -3311,6 +3375,65 @@ function submitCalcAnswer(){
   if(btn) btn.disabled = true;
   if(state.feedbackMode==="immediate"){
     renderFeedback(q, status);
+  } else {
+    renderDeferredFeedback();
+  }
+}
+
+/* Cloze (Drop-Down) questions: a passage with {{blank1}}, {{blank2}}, etc.
+   markers, each replaced with a <select> populated from that blank's own
+   option list (shuffled independently so the correct answer isn't always
+   in the same position). Scoring follows NCSBN's own documented rule for
+   this item type: each drop-down is scored independently under 0/1
+   (correct=1pt, incorrect=0, no penalty), and the item's total is the sum
+   across all blanks — reusing the same correct/partial/incorrect status
+   model already built for SATA's +/- rule. */
+function escapeAttr(s){
+  return String(s).replace(/&/g,"&amp;").replace(/"/g,"&quot;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+}
+function renderClozeContent(q){
+  let html = q.clozeText;
+  q.clozeBlanks.forEach((blank,idx)=>{
+    const marker = `{{blank${idx+1}}}`;
+    const shuffled = shuffle(blank.options);
+    const optionsHtml = shuffled.map(o=>`<option value="${escapeAttr(o)}">${o}</option>`).join("");
+    const selectHtml = `<select class="cloze-select" data-blank-idx="${idx}" id="clozeBlank${idx}">
+      <option value="" selected disabled>— select —</option>
+      ${optionsHtml}
+    </select>`;
+    html = html.split(marker).join(selectHtml);
+  });
+  return html;
+}
+function submitClozeAnswer(){
+  if(state.locked) return;
+  const q = state.questions[state.index];
+  const selects = Array.from(document.querySelectorAll(".cloze-select")).sort((a,b)=>
+    parseInt(a.getAttribute("data-blank-idx")) - parseInt(b.getAttribute("data-blank-idx")));
+  const selectedValues = selects.map(sel=>sel.value);
+  if(selectedValues.some(v=>!v)) return; // require every blank filled before scoring
+  state.locked = true;
+  let correctCount = 0;
+  const blankResults = q.clozeBlanks.map((blank,idx)=>{
+    const isCorrect = selectedValues[idx] === blank.correct;
+    if(isCorrect) correctCount++;
+    return { selected: selectedValues[idx], correct: blank.correct, isCorrect };
+  });
+  const maxPoints = q.clozeBlanks.length;
+  const fraction = maxPoints > 0 ? correctCount / maxPoints : 0;
+  const status = fraction===1 ? "correct" : fraction===0 ? "incorrect" : "partial";
+  const weightedPoints = Math.round(fraction * 2 * 10) / 10;
+  recordAnswer(q, status, selectedValues, weightedPoints);
+  const clozeDetail = { blankResults, correctCount, maxPoints, weightedPoints };
+  state.answers[state.answers.length-1].clozeDetail = clozeDetail;
+  selects.forEach((sel,idx)=>{
+    sel.disabled = true;
+    sel.classList.add(blankResults[idx].isCorrect ? "cloze-correct" : "cloze-incorrect");
+  });
+  const btn = document.getElementById("clozeSubmitBtn");
+  if(btn) btn.disabled = true;
+  if(state.feedbackMode==="immediate"){
+    renderFeedback(q, status, null, clozeDetail);
   } else {
     renderDeferredFeedback();
   }
@@ -3369,23 +3492,50 @@ function renderDeferredFeedback(){
   `;
 }
 
-function recordAnswer(q, status, selected){
+function recordAnswer(q, status, selected, points){
   const timeSpentSeconds = state.questionStartTime ? Math.round((Date.now()-state.questionStartTime)/1000) : null;
-  state.answers.push({qId:q.id, status, selected, subtopic:q.subtopic, concept:q.explain.concept, category:q.category, timeSpentSeconds});
+  if(points===undefined){
+    // Real NCLEX 0/1 scoring for standard single-response items (traditional
+    // multiple choice, fill-in-the-blank/calculation): a correct answer earns
+    // full credit, an incorrect one earns zero — there's no penalty. This
+    // matches NCSBN's own description: "no penalty is implemented for
+    // selection of any distractors... incorrect option is scored as 0
+    // points." SATA questions pass their own points explicitly via the +/-
+    // scoring rule (see submitSata) and never hit this default.
+    points = status==="correct" ? 2 : 0;
+  }
+  state.answers.push({qId:q.id, status, selected, points, subtopic:q.subtopic, concept:q.explain.concept, category:q.category, timeSpentSeconds});
   SESSION_ANSWER_LOG.push({category:q.category, status});
   state.sessionTotal++; if(status==="correct") state.sessionCorrect++;
   renderSessionScore();
 }
 
-function renderFeedback(q, status){
-  const correctFlag = status==="correct";
+function renderFeedback(q, status, sataDetail, clozeDetail){
+  const isPartial = status==="partial";
+  const isGood = status==="correct";
+  const bannerClass = isGood ? "good" : isPartial ? "partial" : "bad";
+  let stamp, subline;
+  if(sataDetail){
+    const pts = sataDetail.weightedPoints;
+    if(isGood){ stamp = `✓ CORRECT — Full Credit (+${pts})`; subline = "You selected every correct option and nothing else."; }
+    else if(isPartial){ stamp = `◐ PARTIAL CREDIT (+${pts})`; subline = `${sataDetail.correctSelected} of ${sataDetail.maxPoints} correct option(s) selected${sataDetail.incorrectSelected ? `, minus ${sataDetail.incorrectSelected} incorrect selection(s)` : ""} — NCLEX SATA items use +/- scoring: +1 per correct option chosen, −1 per incorrect one, floored at 0.`; }
+    else { stamp = `✗ NO CREDIT (0 pts)`; subline = "The incorrect selections outweighed the correct ones (or none were right) — under +/- scoring this nets to 0, not a further penalty."; }
+  } else if(clozeDetail){
+    const pts = clozeDetail.weightedPoints;
+    if(isGood){ stamp = `✓ CORRECT — Full Credit (+${pts})`; subline = "Every blank was filled correctly."; }
+    else if(isPartial){ stamp = `◐ PARTIAL CREDIT (+${pts})`; subline = `${clozeDetail.correctCount} of ${clozeDetail.maxPoints} blank(s) correct — each drop-down is scored independently (0/1 per blank, no penalty for a wrong one), then summed for the item total.`; }
+    else { stamp = `✗ NO CREDIT (0 pts)`; subline = "None of the blanks were correct — each drop-down is scored independently, so this nets to 0."; }
+  } else {
+    stamp = isGood ? "✓ CORRECT (+2)" : "✗ INCORRECT (0 pts)";
+    subline = isGood ? "Nice — that's the concept locked in." : "Let's break down what was missed.";
+  }
   const wrongList = Object.entries(q.explain.wrong||{}).map(([k,txt])=>
     `<div class="why-wrong-item"><b>${k}</b>${txt}</div>`).join("");
   const isLast = state.index === effectiveTotalQuestions()-1;
   const html = `
-    <div class="feedback-banner ${correctFlag?"good":"bad"}">
-      <span class="stamp">${correctFlag?"✓ CORRECT (+2)":"✗ INCORRECT (−0.5)"}</span>
-      <span>${correctFlag? "Nice — that's the concept locked in." : "Let's break down what was missed."}</span>
+    <div class="feedback-banner ${bannerClass}">
+      <span class="stamp">${stamp}</span>
+      <span>${subline}</span>
     </div>
     <div class="explain">
       <div class="explain-block">
@@ -3501,13 +3651,19 @@ function showResults(){
   state.view="results";
   const total = state.questions.length;
   const correct = state.answers.filter(a=>a.status==="correct").length;
+  const partial = state.answers.filter(a=>a.status==="partial").length;
   const incorrect = state.answers.filter(a=>a.status==="incorrect").length;
   const skipped = state.answers.filter(a=>a.status==="skipped").length;
   const pct = total ? Math.round((correct/total)*100) : 0;
   const totalTimeSeconds = state.testStartTime ? Math.round((Date.now()-state.testStartTime)/1000) : null;
 
-  // Weighted scoring: +2 per correct, -0.5 per incorrect, 0 per skipped
-  const weightedScore = Math.round((correct*2 - incorrect*0.5) * 10) / 10;
+  // Weighted scoring sums each answer's actual points earned. Single-select
+  // and calculation questions use real NCLEX 0/1 scoring: +2 for correct,
+  // 0 for incorrect (no penalty) or skipped. SATA questions use the +/-
+  // scoring rule instead: partial credit from 0 to 2, scaled from the real
+  // 0-to-maxPoints range. Both are summed the same way here, so a mixed
+  // test naturally reflects whichever rule applied to each question.
+  const weightedScore = Math.round(state.answers.reduce((sum,a)=>sum+(typeof a.points==="number"?a.points:0), 0) * 10) / 10;
   const weightedMax = total*2;
 
   if(state.quizType==="full"){
@@ -3529,12 +3685,13 @@ function showResults(){
 
   const byCat = {};
   state.questions.forEach((q,i)=>{
-    byCat[q.category] = byCat[q.category] || {correct:0,total:0,skipped:0,answered:0,timeSum:0,timeCount:0};
+    byCat[q.category] = byCat[q.category] || {correct:0,partial:0,total:0,skipped:0,answered:0,timeSum:0,timeCount:0};
     byCat[q.category].total++;
     const a = state.answers[i];
     if(a && a.status==="correct") byCat[q.category].correct++;
+    if(a && a.status==="partial") byCat[q.category].partial++;
     if(a && a.status==="skipped") byCat[q.category].skipped++;
-    if(a && (a.status==="correct" || a.status==="incorrect")){
+    if(a && (a.status==="correct" || a.status==="incorrect" || a.status==="partial")){
       byCat[q.category].answered++;
       if(typeof a.timeSpentSeconds==="number"){
         byCat[q.category].timeSum += a.timeSpentSeconds;
@@ -3554,7 +3711,7 @@ function showResults(){
   }).join("");
 
   // Full per-question review — every question, including skipped
-  const statusIcon = {correct:"✓", incorrect:"✗", skipped:"⏭"};
+  const statusIcon = {correct:"✓", partial:"◐", incorrect:"✗", skipped:"⏭"};
   const reviewHtml = state.questions.map((q,i)=>{
     const a = state.answers[i];
     const status = a ? a.status : "skipped";
@@ -3563,11 +3720,14 @@ function showResults(){
     const unitSuffix = (q.type==="calc" && q.unit) ? " "+q.unit : "";
     const yourAnswer = (a && a.selected!=null) ? (Array.isArray(a.selected) ? a.selected.join(", ") : a.selected+unitSuffix) : "— (skipped)";
     const correctAnswer = Array.isArray(q.correct) ? q.correct.join(", ") : q.correct+unitSuffix;
+    const sataNote = (a && a.sataDetail) ? `<p style="font-size:11.5px;color:var(--gold);margin:0 0 10px;" class="mono">+/- scoring: ${a.sataDetail.correctSelected} correct${a.sataDetail.incorrectSelected?` − ${a.sataDetail.incorrectSelected} incorrect`:""} → ${a.sataDetail.weightedPoints} of 2 pts</p>` : "";
+    const clozeNote = (a && a.clozeDetail) ? `<p style="font-size:11.5px;color:var(--gold);margin:0 0 10px;" class="mono">0/1 per blank: ${a.clozeDetail.correctCount} of ${a.clozeDetail.maxPoints} correct → ${a.clozeDetail.weightedPoints} of 2 pts</p>` : "";
     return `
     <details class="missed-item">
       <summary><span>${statusIcon[status]} ${q.subtopic} — ${q.explain.concept}</span><span class="arrow">›</span></summary>
       <p class="stem" style="font-size:14px;">${q.stem}</p>
       <p style="font-size:12.5px;color:var(--ink-soft);margin:0 0 10px;" class="mono">Your answer: ${yourAnswer} &nbsp;·&nbsp; Correct: ${correctAnswer}</p>
+      ${sataNote}${clozeNote}
       <ul class="bullets">${q.explain.why.map(w=>`<li>${w}</li>`).join("")}</ul>
       ${wrongList ? `<div class="explain-block">${wrongList}</div>` : ""}
       <div class="quickcheck"><span class="lightning">⚡</span><span>${q.explain.quick}</span></div>
@@ -3581,11 +3741,12 @@ function showResults(){
     : state.quizType==="casestudy" ? `startCaseStudy(${state.testNumberForRetake})`
     : state.quizType==="vocabulary" ? `startVocabQuiz()`
     : state.quizType==="calcpractice" ? `startCalcPractice()`
+    : state.quizType==="clozepractice" ? `startClozePractice()`
     : `openCustomTestModal()`;
-  const retakeLabel = (state.quizType==="full" || state.quizType==="hard" || state.quizType==="freemock" || state.quizType==="adaptive" || state.quizType==="casestudy" || state.quizType==="calcpractice") ? "Retake" : "Create another test";
-  const answeredCount = correct + incorrect;
+  const retakeLabel = (state.quizType==="full" || state.quizType==="hard" || state.quizType==="freemock" || state.quizType==="adaptive" || state.quizType==="casestudy" || state.quizType==="calcpractice" || state.quizType==="clozepractice") ? "Retake" : "Create another test";
+  const answeredCount = correct + partial + incorrect;
   const answeredTimeSum = state.answers
-    .filter(a=>(a.status==="correct" || a.status==="incorrect") && typeof a.timeSpentSeconds==="number")
+    .filter(a=>(a.status==="correct" || a.status==="partial" || a.status==="incorrect") && typeof a.timeSpentSeconds==="number")
     .reduce((sum,a)=>sum+a.timeSpentSeconds, 0);
   const avgSecPerQ = answeredCount ? Math.round(answeredTimeSum/answeredCount) : 0;
   const summaryCommentary = generateSummaryCommentary(byCat, total, correct, skipped, answeredCount, pct, totalTimeSeconds, avgSecPerQ);
@@ -3593,7 +3754,7 @@ function showResults(){
   document.getElementById("main").innerHTML = `
     <div class="card">
       <div class="score-hero"><span class="score-big" style="color:${weightedScore>=weightedMax*0.7?'var(--correct)':weightedScore>=weightedMax*0.5?'var(--gold)':'var(--incorrect)'}">${weightedScore}</span><span class="score-sub">of ${weightedMax} pts — ${state.quizTitle}</span></div>
-      <p class="mono" style="font-size:13px;color:var(--ink-soft);margin:2px 0 0;">${correct} correct · ${incorrect} incorrect · ${skipped} skipped &nbsp;(${pct}% accuracy) &nbsp;·&nbsp; scoring: +2 correct, −0.5 incorrect, 0 skipped</p>
+      <p class="mono" style="font-size:13px;color:var(--ink-soft);margin:2px 0 0;">${correct} correct · ${incorrect} incorrect · ${skipped} skipped &nbsp;(${pct}% accuracy) &nbsp;·&nbsp; scoring: +2 correct, 0 incorrect/skipped, SATA partial credit per +/- rule</p>
       ${totalTimeSeconds!==null ? `<p class="mono" style="font-size:12px;color:var(--ink-soft);margin:2px 0 0;">Completed in ${formatHMS(totalTimeSeconds)}</p>` : ""}
       <div id="saveStatus"><span class="save-status off">Saving...</span></div>
       <div class="cta-row">
@@ -3633,7 +3794,7 @@ function showResults(){
 
   const missedSummary = state.questions
     .map((q,i)=>({q,a:state.answers[i]}))
-    .filter(x=>x.a && x.a.status==="incorrect")
+    .filter(x=>x.a && (x.a.status==="incorrect" || x.a.status==="partial"))
     .map(({q})=>({subtopic:q.subtopic, concept:q.explain.concept}));
 
   const record = {
