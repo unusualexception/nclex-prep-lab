@@ -59,6 +59,20 @@
   .topbar-right{margin-left:auto;display:flex;align-items:center;gap:14px;flex-wrap:wrap;}
   .concept-bullets li{display:flex;justify-content:space-between;align-items:baseline;gap:6px;flex-wrap:wrap;}
   ul.bullets.concept-bullets li{margin-bottom:16px;}
+  .vocab-example{font-size:12px;color:var(--ink-soft);font-style:italic;margin-top:3px;line-height:1.5;}
+  ul.bullets.vocab-bullets li{margin-bottom:14px;}
+  .flashcard{
+    min-height:220px;border:2px solid var(--teal-600);border-radius:16px;
+    display:flex;align-items:center;justify-content:center;flex-direction:column;
+    cursor:pointer;padding:30px 20px;background:var(--panel);text-align:center;
+    transition:background .15s;
+  }
+  .flashcard:hover{background:var(--teal-100);}
+  .flashcard-term{font-size:24px;font-weight:700;font-family:'Space Grotesk',sans-serif;color:var(--teal-900);line-height:1.3;}
+  .flashcard-hint{font-size:12px;color:var(--ink-soft);margin-top:16px;}
+  .flashcard-category{font-family:'IBM Plex Mono',monospace;font-size:10px;letter-spacing:.05em;color:var(--ink-soft);text-transform:uppercase;margin-bottom:10px;}
+  .flashcard-meaning{font-size:16.5px;line-height:1.6;color:var(--ink);font-weight:500;}
+  .flashcard-example{font-size:13px;color:var(--ink-soft);font-style:italic;margin-top:16px;line-height:1.6;}
   .explain-btn{
     flex-shrink:0;background:none;border:none;color:var(--blue);font-size:11px;font-weight:600;
     padding:0;text-decoration:underline;font-family:'IBM Plex Sans',sans-serif;white-space:nowrap;
@@ -169,7 +183,9 @@
   .issue-modal, .contact-modal{max-width:480px;}
   .upgrade-modal{max-width:560px;}
   .pricing-cards{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;}
-  .pricing-card{border:1px solid var(--line);border-radius:9px;padding:14px 10px;text-align:center;}
+  .pricing-card{border:1px solid var(--line);border-radius:9px;padding:14px 10px;text-align:center;position:relative;}
+  .pricing-card.pricing-card-recommended{border:2px solid var(--teal-600);padding-top:22px;}
+  .p-recommended-badge{position:absolute;top:-11px;left:50%;transform:translateX(-50%);background:var(--teal-600);color:#fff;font-size:9.5px;font-weight:700;letter-spacing:.04em;padding:3px 10px;border-radius:10px;white-space:nowrap;}
   .pricing-card .p-label{font-family:'IBM Plex Mono',monospace;font-size:10.5px;letter-spacing:.06em;color:var(--ink-soft);text-transform:uppercase;}
   .pricing-card .p-price{font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:22px;color:var(--teal-900);margin:6px 0 2px;}
   .pricing-card .p-duration{font-size:11px;color:var(--ink-soft);margin-bottom:10px;}
@@ -224,6 +240,12 @@
   .rail-btn.rail-btn-free{border-color:var(--gold);background:var(--gold-100);}
   .rail-btn.rail-btn-free:hover{border-color:var(--gold);}
   .rail-btn.rail-btn-free.active{background:var(--gold);color:#fff;}
+  .rail-btn.rail-btn-adaptive{border-color:var(--blue);}
+  .rail-btn.rail-btn-adaptive:hover{border-color:var(--blue);}
+  .rail-btn.rail-btn-adaptive.active{background:var(--blue);color:#fff;}
+  .rail-btn.rail-btn-case{border-color:var(--teal-600);}
+  .rail-btn.rail-btn-case:hover{border-color:var(--teal-600);}
+  .rail-btn.rail-btn-case.active{background:var(--teal-600);color:#fff;}
   .rail-btn .id{font-family:'IBM Plex Mono',monospace;font-size:11.5px;}
   .rail-btn .status{width:7px;height:7px;border-radius:50%;background:var(--line);flex-shrink:0;}
   .rail-btn .status.done{background:var(--teal-600);}
@@ -266,6 +288,12 @@
     display:inline-flex;align-items:center;gap:6px;font-size:11px;font-family:'IBM Plex Mono',monospace;
     padding:3px 9px;border-radius:6px;margin-bottom:12px;color:#fff;
   }
+  .case-scenario-panel{background:var(--paper);border:1px solid var(--line);border-left:4px solid var(--blue);border-radius:9px;padding:14px 16px;margin-bottom:16px;}
+  .case-scenario-header{font-family:'IBM Plex Mono',monospace;font-size:11px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:var(--blue);margin-bottom:10px;}
+  .case-scenario-stage{margin-bottom:10px;}
+  .case-scenario-stage:last-child{margin-bottom:0;}
+  .case-scenario-label{font-family:'IBM Plex Mono',monospace;font-size:10.5px;font-weight:700;color:var(--ink-soft);text-transform:uppercase;letter-spacing:.03em;margin-bottom:3px;}
+  .case-scenario-content{font-size:13.5px;line-height:1.6;color:var(--ink);}
   .stem{font-size:17px;line-height:1.55;margin:0 0 18px;font-weight:500;}
   .sata-note{font-size:12px;color:var(--blue);font-weight:600;margin:-10px 0 14px;font-family:'IBM Plex Mono',monospace;}
   .options{display:flex;flex-direction:column;gap:9px;margin-bottom:6px;}
@@ -501,6 +529,33 @@
     </div>
   </div>
 
+  <div class="auth-overlay" id="vocabQuizOverlay" style="display:none;">
+    <div class="auth-modal custom-test-modal">
+      <button class="auth-close" id="vocabQuizCloseBtn" aria-label="Close">×</button>
+      <h3 style="margin:0 0 4px;font-size:17px;">Test My Vocabulary</h3>
+      <p style="font-size:12.5px;color:var(--ink-soft);margin:0 0 16px;">Multiple-choice questions built from the clinical English terms below — pick your categories and length.</p>
+      <div class="auth-field">
+        <label>Number of questions</label>
+        <select id="vocabQuizCount">
+          <option value="10">10</option>
+          <option value="20" selected>20</option>
+          <option value="30">30</option>
+          <option value="50">50</option>
+        </select>
+      </div>
+      <div class="mono" style="font-size:11px;color:var(--ink-soft);margin:14px 0 8px;text-transform:uppercase;letter-spacing:.05em;">Categories to include</div>
+      <div id="vocabCategoryChecks"></div>
+      <div style="margin-top:16px;">
+        <div class="mono" style="font-size:11px;color:var(--ink-soft);margin-bottom:8px;text-transform:uppercase;letter-spacing:.05em;">Answer feedback</div>
+        <div style="display:flex;gap:8px;">
+          <button class="btn secondary feedback-choice active" id="vqFeedbackImmediate" style="flex:1;line-height:1.4;" onclick="setVocabQuizFeedback('immediate')">Learning Mode<br><span style="font-weight:400;font-size:10.5px;opacity:.85;">(immediately after each question)</span></button>
+          <button class="btn secondary feedback-choice" id="vqFeedbackEnd" style="flex:1;line-height:1.4;" onclick="setVocabQuizFeedback('end')">Exam Mode<br><span style="font-weight:400;font-size:10.5px;opacity:.85;">(at the end)</span></button>
+        </div>
+      </div>
+      <button class="btn" id="vocabQuizStartBtn" style="width:100%;margin-top:16px;" onclick="actuallyStartVocabQuiz()">Start Vocabulary Test</button>
+    </div>
+  </div>
+
   <div class="auth-overlay" id="quizOptionsOverlay" style="display:none;">
     <div class="auth-modal">
       <button class="auth-close" id="quizOptionsCloseBtn" aria-label="Close">×</button>
@@ -655,6 +710,16 @@ function freeMockTestAccessState(){
   // this is the one always-available, always-retakeable showcase test.
   if(!authState.user) return "login";
   return "open";
+}
+function adaptiveTestAccessState(){
+  if(!authState.user) return "login";
+  if(hasActiveSubscription()) return "open";
+  return "upgrade";
+}
+function caseStudyAccessState(){
+  if(!authState.user) return "login";
+  if(hasActiveSubscription()) return "open";
+  return "upgrade";
 }
 
 function renderAccountWidget(){
@@ -934,6 +999,11 @@ const CATEGORIES = [
   {key:"pa",    label:"Physiological Adaptation",                short:"Physio Adapt",   weight:14, range:"11–17%", color:"#7A3B2E"}
 ];
 const CAT = Object.fromEntries(CATEGORIES.map(c=>[c.key,c]));
+// Synthetic entry so renderQuestion()'s CAT[q.category] lookup works for
+// dynamically generated vocabulary quiz questions. Deliberately not added
+// to CATEGORIES itself — that array drives weighted sampling and the
+// NCLEX-RN Test Plan Weighting panel, neither of which vocabulary belongs in.
+CAT.vocab = {key:"vocab", label:"Vocabulary & Clinical English", color:"#8C5A2B"};
 
 /* Quick-review bullet points per category — condensed, high-yield concepts
    for revision, separate from the question bank. */
@@ -1242,6 +1312,8 @@ const FALLBACK_CONCEPT_DETAILS = {
    Supabase isn't configured or the fetch fails/returns nothing.
    ========================================================================= */
 let CONCEPTS = {};
+let CASE_STUDIES = [];
+let VOCABULARY = [];
 
 function buildFallbackConcepts(){
   const out = {};
@@ -1272,6 +1344,228 @@ async function loadConceptBank(){
     }
   }
   return buildFallbackConcepts();
+}
+
+/* Case Studies: NGN-style unfolding scenarios. Each row has scenario_stages
+   (progressively revealed patient info) and items (6 linked sub-questions
+   following the CJMM). No fallback bank — if this fails to load, the rail
+   section just shows nothing rather than breaking the rest of the app. */
+async function loadCaseStudies(){
+  if(sbClient){
+    try{
+      const { data, error } = await sbClient.from("case_studies").select("*").order("case_number", { ascending:true });
+      if(error) throw error;
+      return data || [];
+    }catch(e){
+      console.error("Couldn't load case studies from Supabase.", e);
+    }
+  }
+  return [];
+}
+
+/* Vocabulary & Clinical English: everyday clinical wording, priority words,
+   action verbs, therapeutic communication phrases, and NGN question-stem
+   patterns — a well-documented pain point distinct from medical jargon
+   itself. Grouped by category for both the reference section and for
+   picking same-category distractors when building a vocabulary quiz. */
+async function loadVocabulary(){
+  if(sbClient){
+    try{
+      const { data, error } = await sbClient.from("vocabulary_terms").select("*").order("category", { ascending:true }).order("term", { ascending:true });
+      if(error) throw error;
+      return data || [];
+    }catch(e){
+      console.error("Couldn't load vocabulary terms from Supabase.", e);
+    }
+  }
+  return [];
+}
+const VOCAB_CATEGORY_ORDER = ["action","priority","patientlanguage","safety","medication","stemlogic","communication","ngnwording","positioning","satalogic"];
+function vocabCategories(){
+  const groups = {};
+  VOCABULARY.forEach(v=>{
+    groups[v.category] = groups[v.category] || { key:v.category, label:v.category_label, terms:[] };
+    groups[v.category].terms.push(v);
+  });
+  return VOCAB_CATEGORY_ORDER.map(k=>groups[k]).filter(Boolean);
+}
+
+/* ---------- Vocabulary flashcards ----------
+   A dedicated view, not built on the quiz engine — flashcards are a
+   genuinely different interaction (self-assessed recall, not scored
+   multiple choice), so they get their own simple render loop instead of
+   being shoehorned into the question/answer/results pipeline. */
+function startVocabFlashcards(){
+  if(!VOCABULARY.length){ alert("Vocabulary terms aren't available right now — please try again shortly."); return; }
+  state.flashcardDeck = shuffle(VOCABULARY);
+  state.flashcardIndex = 0;
+  state.flashcardFlipped = false;
+  state.flashcardKnownCount = 0;
+  state.flashcardLearningCount = 0;
+  state.view = "flashcards";
+  renderFlashcard();
+}
+function renderFlashcard(){
+  const deck = state.flashcardDeck;
+  if(state.flashcardIndex >= deck.length){
+    return renderFlashcardSummary();
+  }
+  const card = deck[state.flashcardIndex];
+  const pct = Math.round((state.flashcardIndex/deck.length)*100);
+  document.getElementById("main").innerHTML = `
+    <div class="quiz-header">
+      <div class="quiz-header-left">
+        <span class="quiz-title">Vocabulary Flashcards</span>
+        <span class="quiz-title">Card ${state.flashcardIndex+1} of ${deck.length}</span>
+      </div>
+    </div>
+    <div class="progress-track"><div class="progress-fill" style="width:${pct}%"></div></div>
+    <div class="flashcard" onclick="flipFlashcard()">
+      <div class="flashcard-category">${card.category_label}</div>
+      ${state.flashcardFlipped ? `
+        <div class="flashcard-meaning">${card.meaning}</div>
+        ${card.example ? `<div class="flashcard-example">${card.example}</div>` : ""}
+      ` : `
+        <div class="flashcard-term">${card.term}</div>
+        <div class="flashcard-hint">Tap the card to reveal the meaning</div>
+      `}
+    </div>
+    ${state.flashcardFlipped ? `
+      <div class="cta-row" style="justify-content:center;margin-top:18px;">
+        <button class="btn secondary" onclick="markFlashcard('learning')">Still Learning</button>
+        <button class="btn" onclick="markFlashcard('known')">Got It ✓</button>
+      </div>
+    ` : `
+      <p style="font-size:12px;color:var(--ink-soft);text-align:center;margin-top:14px;">Click or tap the card to see the meaning</p>
+    `}
+    <div style="text-align:center;margin-top:20px;">
+      <button class="link-btn" style="color:var(--ink-soft);" onclick="goHome()">Exit to dashboard</button>
+    </div>
+  `;
+}
+function flipFlashcard(){
+  state.flashcardFlipped = !state.flashcardFlipped;
+  renderFlashcard();
+}
+function markFlashcard(status){
+  if(status==="known") state.flashcardKnownCount++;
+  else state.flashcardLearningCount++;
+  state.flashcardIndex++;
+  state.flashcardFlipped = false;
+  renderFlashcard();
+}
+function renderFlashcardSummary(){
+  const total = state.flashcardDeck.length;
+  document.getElementById("main").innerHTML = `
+    <div class="card" style="text-align:center;">
+      <h2 style="margin:0 0 8px;">Deck Complete!</h2>
+      <p style="font-size:14px;color:var(--ink-soft);margin:0 0 20px;">You went through all ${total} cards.</p>
+      <div style="display:flex;justify-content:center;gap:30px;margin-bottom:24px;">
+        <div><span class="score-big" style="color:var(--correct);font-size:32px;">${state.flashcardKnownCount}</span><div class="mono" style="font-size:11px;color:var(--ink-soft);">GOT IT</div></div>
+        <div><span class="score-big" style="color:var(--gold);font-size:32px;">${state.flashcardLearningCount}</span><div class="mono" style="font-size:11px;color:var(--ink-soft);">STILL LEARNING</div></div>
+      </div>
+      <div class="cta-row" style="justify-content:center;">
+        <button class="btn" onclick="startVocabFlashcards()">Shuffle &amp; Restart</button>
+        <button class="btn secondary" onclick="goHome()">Back to Dashboard</button>
+      </div>
+    </div>
+  `;
+}
+
+/* ---------- Vocabulary quiz ("Test My Vocabulary") ----------
+   Unlike flashcards, this reuses the existing quiz engine end-to-end (same
+   timer, scoring, feedback modes, results screen) by generating standard-
+   shaped multiple-choice questions on the fly from the term/meaning data —
+   no need to hand-write quiz questions the way the NCLEX question bank and
+   case studies required. Each term becomes one question, in either
+   direction (term -> meaning, or meaning -> term, chosen randomly), with
+   distractors pulled from other terms in the same category when there are
+   enough to draw from, falling back to the full bank otherwise. */
+let vocabQuizFeedbackMode = "immediate";
+function setVocabQuizFeedback(mode){
+  vocabQuizFeedbackMode = mode;
+  document.getElementById("vqFeedbackImmediate").classList.toggle("active", mode==="immediate");
+  document.getElementById("vqFeedbackEnd").classList.toggle("active", mode==="end");
+}
+function startVocabQuiz(){
+  if(!VOCABULARY.length){ alert("Vocabulary terms aren't available right now — please try again shortly."); return; }
+  const checksEl = document.getElementById("vocabCategoryChecks");
+  checksEl.innerHTML = vocabCategories().map(c=>`
+    <label style="display:flex;align-items:center;gap:8px;font-size:13px;padding:5px 0;cursor:pointer;">
+      <input type="checkbox" class="vocab-cat-check" value="${c.key}" checked> ${c.label} <span class="mono" style="font-size:10.5px;color:var(--ink-soft);">(${c.terms.length})</span>
+    </label>
+  `).join("");
+  vocabQuizFeedbackMode = "immediate";
+  document.getElementById("vqFeedbackImmediate").classList.add("active");
+  document.getElementById("vqFeedbackEnd").classList.remove("active");
+  document.getElementById("vocabQuizOverlay").style.display = "flex";
+}
+function closeVocabQuizModal(){
+  document.getElementById("vocabQuizOverlay").style.display = "none";
+}
+function buildVocabTest(selectedCategories, count){
+  const pool = VOCABULARY.filter(v=>selectedCategories.includes(v.category));
+  const selected = shuffle(pool).slice(0, Math.min(count, pool.length));
+  return selected.map((v,i)=>{
+    const direction = Math.random() < 0.5 ? "term2meaning" : "meaning2term";
+    const sameCategoryOthers = VOCABULARY.filter(o=>o.category===v.category && o.term!==v.term);
+    const distractorPool = sameCategoryOthers.length >= 3 ? sameCategoryOthers : VOCABULARY.filter(o=>o.term!==v.term);
+    const distractorTerms = shuffle(distractorPool).slice(0,3);
+
+    const stem = direction==="term2meaning"
+      ? `What does <b>"${v.term}"</b> mean in a clinical/NCLEX context?`
+      : `Which term means: <b>"${v.meaning}"</b>?`;
+    const correctText = direction==="term2meaning" ? v.meaning : v.term;
+    const optionPool = [
+      {text:correctText, isCorrect:true, sourceTerm:v.term, sourceMeaning:v.meaning},
+      ...distractorTerms.map(d=>({
+        text: direction==="term2meaning" ? d.meaning : d.term,
+        isCorrect:false, sourceTerm:d.term, sourceMeaning:d.meaning
+      }))
+    ];
+    const shuffled = shuffle(optionPool);
+    const keys = ["A","B","C","D"];
+    const options = shuffled.map((o,idx)=>({k:keys[idx], t:o.text}));
+    const correctKey = keys[shuffled.findIndex(o=>o.isCorrect)];
+    const wrong = {};
+    shuffled.forEach((o,idx)=>{
+      if(o.isCorrect) return;
+      wrong[keys[idx]] = direction==="term2meaning"
+        ? `This describes "${o.sourceTerm}," not "${v.term}."`
+        : `"${o.sourceTerm}" means: ${o.sourceMeaning}`;
+    });
+
+    return {
+      id: `VOCAB-${v.id}-${i}`,
+      category: "vocab",
+      type: "single",
+      subtopic: v.category_label,
+      stem,
+      options,
+      correct: correctKey,
+      explain: {
+        concept: v.term,
+        why: v.meaning + (v.example ? " " + v.example : ""),
+        wrong,
+        quick: `${v.term}: ${v.meaning}`
+      }
+    };
+  });
+}
+function actuallyStartVocabQuiz(){
+  const selectedCategories = Array.from(document.querySelectorAll(".vocab-cat-check:checked")).map(el=>el.value);
+  if(selectedCategories.length===0){ alert("Please select at least one category."); return; }
+  const count = parseInt(document.getElementById("vocabQuizCount").value);
+  const qs = buildVocabTest(selectedCategories, count);
+  if(qs.length===0){ alert("No terms available for the selected categories."); return; }
+  closeVocabQuizModal();
+  state.feedbackMode = vocabQuizFeedbackMode;
+  state.view="quiz"; state.quizKey="vocabulary"; state.quizType="vocabulary"; state.quizTitle="Vocabulary Test";
+  state.testNumberForRetake = null;
+  state.questions=qs; state.index=0; state.answers=[]; state.locked=false; state.selectedSata=new Set();
+  renderRail();
+  startQuizTimer();
+  renderQuestion();
 }
 
 
@@ -2030,7 +2324,8 @@ async function loadQuestionBank(){
         return all.map(r=>({
           id:r.id, category:r.category, type:r.type, subtopic:r.subtopic,
           stem:r.stem, options:r.options, correct:r.correct, explain:r.explain,
-          difficulty:r.difficulty || "medium"
+          difficulty:r.difficulty || "medium",
+          difficultyLevel: r.difficulty_level || 3
         }));
       }
     }catch(e){
@@ -2061,6 +2356,18 @@ const state = {
   testProgress:{},         // testNumber -> {status, score}
   hardTestProgress:{},     // testNumber -> {status, score}
   freeMockTestProgress:null, // {status, score} — single fixed test, no number key needed
+  adaptiveCategorySequence:[], // pre-set weighted category order for the current adaptive attempt
+  adaptiveCurrentTier:3,       // 1-5, moves up/down after each answer
+  adaptiveTierHistory:[],      // {tier, status} per question, for the post-test progression chart
+  caseStudyProgress:{},        // caseNumber -> {status, score}
+  caseStudyScenarioStages:[],  // the current case's scenario_stages, for the progressive-reveal panel
+  caseStudyTitle:"",
+  caseStudySetting:"",
+  flashcardDeck:[],
+  flashcardIndex:0,
+  flashcardFlipped:false,
+  flashcardKnownCount:0,
+  flashcardLearningCount:0,
   testStartTime:null,      // Date.now() when the current test began — drives Learning Mode count-up
   questionStartTime:null,  // Date.now() when the current question was first shown — per-question timing
   examDeadline:null,       // Date.now() + budget, for Exam Mode countdown; null in Learning Mode
@@ -2160,6 +2467,49 @@ function buildFreeMockTest(){
   return seededShuffle(selected, seed+555).slice(0, targetTotal);
 }
 
+/* ---------- Adaptive Practice ----------
+   This is deliberately NOT presented as "CAT" — real NCLEX Computerized
+   Adaptive Testing relies on item parameters (difficulty, discrimination)
+   empirically calibrated from how thousands of real candidates performed
+   on each item, fit via Item Response Theory. This question bank has no
+   such calibration yet — difficulty_level (1-5) is a heuristic proxy based
+   on question format/content signals (SATA, high-acuity keywords, stem
+   complexity), not real response data.
+   What IS genuinely adaptive here: after every answer, the next question's
+   target difficulty moves up (correct) or down (incorrect/skipped) within
+   whichever category the pre-set content blueprint calls for next — the
+   same core mechanic real CAT uses, just without empirical calibration
+   behind the difficulty values. As real usage accumulates in quiz_answers,
+   difficulty_level could later be recalculated from actual pass rates per
+   question, which would make this progressively closer to the real thing. */
+const ADAPTIVE_TEST_LENGTH = 75;
+
+function buildAdaptiveCategorySequence(length){
+  const seed = Date.now() % 2147483647; // fresh sequence every attempt, not fixed like other tests
+  let seq = [];
+  CATEGORIES.forEach(c=>{
+    const count = Math.round(length * c.weight/100);
+    for(let i=0;i<count;i++) seq.push(c.key);
+  });
+  while(seq.length < length) seq.push(CATEGORIES[Math.floor(Math.random()*CATEGORIES.length)].key);
+  seq = seq.slice(0, length);
+  return seededShuffle(seq, seed);
+}
+
+function pickAdaptiveQuestion(category, tier, usedIds){
+  const pool = QUESTIONS.filter(q=>q.category===category && !usedIds.has(q.id));
+  if(pool.length===0) return null;
+  let candidates = pool.filter(q=>(q.difficultyLevel||3)===tier);
+  let offset = 1;
+  while(candidates.length===0 && offset<=4){
+    candidates = pool.filter(q=>(q.difficultyLevel||3)===Math.max(1,tier-offset));
+    if(candidates.length===0) candidates = pool.filter(q=>(q.difficultyLevel||3)===Math.min(5,tier+offset));
+    offset++;
+  }
+  if(candidates.length===0) candidates = pool;
+  return candidates[Math.floor(Math.random()*candidates.length)];
+}
+
 /* ---------- Rendering: top bar ---------- */
 const LOCK_ICON = '<svg width="10" height="10" viewBox="0 0 24 24" style="display:block;" aria-hidden="true"><rect x="5" y="11" width="14" height="10" rx="2" fill="currentColor"/><path d="M8 11V7a4 4 0 0 1 8 0v4" stroke="currentColor" stroke-width="2.4" fill="none" stroke-linecap="round"/></svg>';
 const STAR_ICON = '<svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor" style="display:block;" aria-hidden="true"><path d="M12 2l2.9 6.6 7.1.6-5.4 4.7 1.6 7-6.2-3.8-6.2 3.8 1.6-7L2 9.2l7.1-.6L12 2z"/></svg>';
@@ -2239,13 +2589,57 @@ function renderRail(){
     </button>`;
   }).join("");
 
+  const adaptiveAccess = adaptiveTestAccessState();
+  const adaptiveLocked = adaptiveAccess !== "open";
+  const adaptiveLockBadge = adaptiveLocked ? LOCK_ICON : "";
+  const adaptiveProg = state.adaptiveProgress;
+  const adaptiveStatusClass = adaptiveProg ? (adaptiveProg.status==="done" ? "done":"progress") : "";
+  const adaptiveLabel = adaptiveProg && adaptiveProg.status==="done" ? `${adaptiveProg.score}%` : "";
+  const adaptiveSection = `
+    <div class="rail-title" style="margin-top:16px;">Adaptive Practice</div>
+    <div class="rail-note" style="border-top:none;">75 questions that get harder or easier based on how you're doing — genuinely adaptive in mechanic, though not empirically calibrated like the real NCLEX (see the results page for details).</div>
+    <button class="rail-btn rail-btn-adaptive ${state.quizKey==="adaptive"?"active":""} ${adaptiveLocked?'rail-btn-locked':''}" onclick="startAdaptiveTest()">
+      <span class="id mono" style="display:inline-flex;align-items:center;gap:4px;">⚡ ADAPTIVE${adaptiveLockBadge}</span>
+      <span style="display:flex;align-items:center;gap:6px;">
+        <span class="mono" style="font-size:10.5px;opacity:.8;">${adaptiveLabel}</span>
+        <span class="status ${adaptiveStatusClass}"></span>
+      </span>
+    </button>
+  `;
+
+  const caseAccess = caseStudyAccessState();
+  const caseLocked = caseAccess !== "open";
+  const caseLockBadge = caseLocked ? LOCK_ICON : "";
+  const caseBtns = CASE_STUDIES.map(cs=>{
+    const key = "casestudy-"+cs.case_number;
+    const active = state.quizKey===key ? "active":"";
+    const prog = state.caseStudyProgress[cs.case_number];
+    const statusClass = prog ? (prog.status==="done" ? "done":"progress") : "";
+    const label = prog && prog.status==="done" ? `${prog.score}%` : "";
+    const clickHandler = caseLocked ? `openUpgradeModal()` : `startCaseStudy(${cs.case_number})`;
+    return `<button class="rail-btn rail-btn-case ${active} ${caseLocked?'rail-btn-locked':''}" onclick="${clickHandler}">
+      <span class="id mono" style="display:flex;flex-direction:column;line-height:1.35;">
+        <span style="font-size:8px;opacity:.65;letter-spacing:.05em;">CASE ${String(cs.case_number).padStart(2,"0")}</span>
+        <span style="font-size:11px;display:inline-flex;align-items:center;gap:4px;">${cs.title.length>22?cs.title.slice(0,20)+"…":cs.title}${caseLockBadge}</span>
+      </span>
+      <span style="display:flex;align-items:center;gap:6px;">
+        <span class="mono" style="font-size:10.5px;opacity:.8;">${label}</span>
+        <span class="status ${statusClass}"></span>
+      </span>
+    </button>`;
+  }).join("");
+  const caseSection = CASE_STUDIES.length ? `
+    <div class="rail-title" style="margin-top:16px;">Case Studies</div>
+    <div class="rail-note" style="border-top:none;">Next Gen NCLEX-style unfolding scenarios — one evolving patient picture, 6 linked questions following the Clinical Judgment Measurement Model.</div>
+  ` + caseBtns : "";
+
   list.innerHTML = freeMockSection + `
     <div class="rail-title" style="margin-top:16px;">Full-Length Tests</div>
     <div class="rail-note" style="border-top:none;">Weighted across all 8 categories per the NCSBN test plan. Each full length test currently pulls up to ${Math.min(105,bankSize)} questions.</div>
   ` + regularBtns + `
     <div class="rail-title" style="margin-top:16px;">Hard Tests</div>
     <div class="rail-note" style="border-top:none;">50 questions per test, category-weighted.</div>
-  ` + hardBtns;
+  ` + hardBtns + adaptiveSection + caseSection;
 }
 function renderSessionScore(){
   document.getElementById("sessionScore").textContent = `${state.sessionCorrect} / ${state.sessionTotal} correct this session`;
@@ -2344,6 +2738,22 @@ async function goHome(){
       `).join("")}
     </div>
     <div class="card">
+      <h3>Vocabulary &amp; Clinical English</h3>
+      <p style="font-size:13px;color:var(--ink-soft);margin:0 0 12px;">Many students who know the nursing content well still lose points to everyday clinical wording — priority words, action verbs, and how questions are phrased. This isn't medical jargon; it's precise, testable English. Tap a category to browse, or jump straight into flashcards or a quiz.</p>
+      <div class="cta-row" style="margin-bottom:14px;">
+        <button class="btn" onclick="startVocabFlashcards()">📇 Study Flashcards</button>
+        <button class="btn secondary" onclick="startVocabQuiz()">✎ Test My Vocabulary</button>
+      </div>
+      ${vocabCategories().map(c=>`
+        <details class="missed-item" style="margin-bottom:8px;">
+          <summary><span>${c.label} <span class="mono" style="font-size:10.5px;color:var(--ink-soft);">(${c.terms.length})</span></span><span class="arrow">›</span></summary>
+          <ul class="bullets vocab-bullets" style="margin-top:10px;">
+            ${c.terms.map(t=>`<li><b>${t.term}</b> — ${t.meaning}${t.example ? `<div class="vocab-example">${t.example}</div>` : ""}</li>`).join("")}
+          </ul>
+        </details>
+      `).join("")}
+    </div>
+    <div class="card">
       <h3>8-Week Suggested Preparation Schedule</h3>
       <p style="font-size:13px;color:var(--ink-soft);margin:0 0 14px;">A structured pace to work through this bank before test day — adjust the timeline to fit your own exam date, but keep the order: concepts first, then volume, then your toughest gaps last.</p>
       ${[
@@ -2426,6 +2836,22 @@ function startFreeMockTest(){
   document.getElementById("quizOptionsTitle").textContent = "Free Mock Test";
   document.getElementById("quizOptionsOverlay").style.display = "flex";
 }
+function startAdaptiveTest(){
+  const access = adaptiveTestAccessState();
+  if(access!=="open"){ openUpgradeModal(); return; }
+  pendingStart = {kind:"adaptive", key:null};
+  document.getElementById("quizOptionsTitle").textContent = "Adaptive Practice";
+  document.getElementById("quizOptionsOverlay").style.display = "flex";
+}
+function startCaseStudy(caseNumber){
+  const access = caseStudyAccessState();
+  if(access!=="open"){ openUpgradeModal(); return; }
+  const cs = CASE_STUDIES.find(c=>c.case_number===caseNumber);
+  if(!cs){ alert("That case study isn't available right now — please try again shortly."); return; }
+  pendingStart = {kind:"casestudy", key:caseNumber};
+  document.getElementById("quizOptionsTitle").textContent = "Case Study: "+cs.title;
+  document.getElementById("quizOptionsOverlay").style.display = "flex";
+}
 function closeQuizOptionsModal(){
   document.getElementById("quizOptionsOverlay").style.display = "none";
   pendingStart = null;
@@ -2437,6 +2863,8 @@ function confirmQuizMode(mode){
   if(!p) return;
   if(p.kind==="hard") actuallyStartHardTest(p.key);
   else if(p.kind==="freemock") actuallyStartFreeMockTest();
+  else if(p.kind==="adaptive") actuallyStartAdaptiveTest();
+  else if(p.kind==="casestudy") actuallyStartCaseStudy(p.key);
   else actuallyStartFullTest(p.key);
 }
 
@@ -2468,6 +2896,45 @@ function actuallyStartFreeMockTest(){
   state.testNumberForRetake = null;
   state.questions=qs; state.index=0; state.answers=[]; state.locked=false; state.selectedSata=new Set();
   state.freeMockTestProgress = {status:"progress"};
+  renderRail();
+  startQuizTimer();
+  renderQuestion();
+}
+
+function actuallyStartAdaptiveTest(){
+  state.adaptiveCategorySequence = buildAdaptiveCategorySequence(ADAPTIVE_TEST_LENGTH);
+  state.adaptiveCurrentTier = 3;
+  state.adaptiveTierHistory = [];
+  const first = pickAdaptiveQuestion(state.adaptiveCategorySequence[0], 3, new Set());
+  state.view="quiz"; state.quizKey="adaptive"; state.quizType="adaptive"; state.quizTitle="Adaptive Practice";
+  state.testNumberForRetake = null;
+  state.questions = first ? [first] : []; state.index=0; state.answers=[]; state.locked=false; state.selectedSata=new Set();
+  state.adaptiveProgress = {status:"progress"};
+  renderRail();
+  startQuizTimer();
+  renderQuestion();
+}
+
+function actuallyStartCaseStudy(caseNumber){
+  const cs = CASE_STUDIES.find(c=>c.case_number===caseNumber);
+  if(!cs) return;
+  const qs = cs.items.map((item,i)=>({
+    id: `CS${caseNumber}-${i+1}`,
+    category: cs.category,
+    type: item.type,
+    subtopic: item.cjmm_step,
+    stem: item.stem,
+    options: item.options,
+    correct: item.correct,
+    explain: item.explain
+  }));
+  state.caseStudyScenarioStages = cs.scenario_stages || [];
+  state.caseStudyTitle = cs.title;
+  state.caseStudySetting = cs.setting;
+  state.view="quiz"; state.quizKey="casestudy-"+caseNumber; state.quizType="casestudy"; state.quizTitle="Case Study: "+cs.title;
+  state.testNumberForRetake = caseNumber;
+  state.questions=qs; state.index=0; state.answers=[]; state.locked=false; state.selectedSata=new Set();
+  state.caseStudyProgress[caseNumber] = {status:"progress"};
   renderRail();
   startQuizTimer();
   renderQuestion();
@@ -2621,13 +3088,18 @@ function updateQuizTimerDisplay(){
   }
 }
 function handleTimeUp(){
-  const remaining = state.questions.length - state.answers.length;
-  for(let i=state.answers.length; i<state.questions.length; i++){
-    const q = state.questions[i];
-    state.answers.push({qId:q.id, status:"skipped", selected:null, subtopic:q.subtopic, concept:q.explain.concept, category:q.category, timeSpentSeconds:0});
+  if(state.quizType!=="adaptive"){
+    const remaining = state.questions.length - state.answers.length;
+    for(let i=state.answers.length; i<state.questions.length; i++){
+      const q = state.questions[i];
+      state.answers.push({qId:q.id, status:"skipped", selected:null, subtopic:q.subtopic, concept:q.explain.concept, category:q.category, timeSpentSeconds:0});
+    }
+    state.sessionTotal += remaining;
+    renderSessionScore();
   }
-  state.sessionTotal += remaining;
-  renderSessionScore();
+  // Adaptive mode: future questions haven't been generated yet (they depend
+  // on answers not yet given), so there's nothing concrete to mark skipped —
+  // the session just ends with however many were actually answered.
   alert("⏰ Time's up! Your exam has ended — any unanswered questions were marked as skipped, matching how the real NCLEX-RN ends when time runs out.");
   showResults();
 }
@@ -2645,15 +3117,28 @@ function renderQuestion(){
   const c = CAT[q.category];
   const pct = Math.round((state.index/state.questions.length)*100);
   const isSata = q.type==="sata";
+  const isCaseStudy = state.quizType==="casestudy";
+  const scenarioPanel = isCaseStudy ? `
+    <div class="case-scenario-panel">
+      <div class="case-scenario-header">${state.caseStudySetting} — ${state.caseStudyTitle}</div>
+      ${state.caseStudyScenarioStages.filter(s=>s.before_item<=state.index).map(s=>`
+        <div class="case-scenario-stage">
+          <div class="case-scenario-label">${s.label}</div>
+          <div class="case-scenario-content">${s.content}</div>
+        </div>
+      `).join("")}
+    </div>
+  ` : "";
   document.getElementById("main").innerHTML = `
     <div class="quiz-header">
       <div class="quiz-header-left">
         <span class="quiz-title">${state.quizTitle}</span>
-        <span class="quiz-title">Question ${state.index+1} of ${state.questions.length}</span>
+        <span class="quiz-title">${isCaseStudy ? `Item ${state.index+1} of ${state.questions.length} — ${q.subtopic}` : `Question ${state.index+1} of ${state.questions.length}`}</span>
       </div>
       <span class="quiz-timer mono" id="quizTimerDisplay">00:00:00</span>
     </div>
     <div class="progress-track"><div class="progress-fill" style="width:${pct}%"></div></div>
+    ${scenarioPanel}
     <span class="cat-tag" style="background:${c.color}">${c.label} · ${q.subtopic}</span>
     <p class="stem">${q.stem}</p>
     ${isSata ? `<div class="sata-note">SELECT ALL THAT APPLY</div>`:""}
@@ -2760,7 +3245,7 @@ function skipQuestion(){
   const q = state.questions[state.index];
   recordAnswer(q, "skipped", null);
   document.querySelectorAll("#optionsWrap .opt").forEach(btn=>btn.classList.add("locked"));
-  const isLast = state.index === state.questions.length-1;
+  const isLast = state.index === effectiveTotalQuestions()-1;
   document.getElementById("feedbackZone").innerHTML = `
     <div class="feedback-banner" style="background:var(--gold-100);color:var(--gold);">
       <span class="stamp">⏭ SKIPPED</span>
@@ -2771,7 +3256,7 @@ function skipQuestion(){
 }
 
 function navRow(isLast){
-  const remaining = state.questions.length - state.answers.length;
+  const remaining = effectiveTotalQuestions() - state.answers.length;
   return `
     <div class="nav-row">
       <button class="btn secondary" onclick="goHome()">Exit to dashboard</button>
@@ -2783,19 +3268,21 @@ function navRow(isLast){
 }
 
 function finishTestNow(){
-  const remaining = state.questions.length - state.answers.length;
+  const remaining = effectiveTotalQuestions() - state.answers.length;
   if(remaining > 0 && !confirm(`Finish now? The remaining ${remaining} question${remaining>1?"s":""} will be marked as skipped (0 points each).`)) return;
-  for(let i=state.answers.length; i<state.questions.length; i++){
-    const q = state.questions[i];
-    state.answers.push({qId:q.id, status:"skipped", selected:null, subtopic:q.subtopic, concept:q.explain.concept, category:q.category, timeSpentSeconds:0});
+  if(state.quizType!=="adaptive"){
+    for(let i=state.answers.length; i<state.questions.length; i++){
+      const q = state.questions[i];
+      state.answers.push({qId:q.id, status:"skipped", selected:null, subtopic:q.subtopic, concept:q.explain.concept, category:q.category, timeSpentSeconds:0});
+    }
+    state.sessionTotal += remaining;
+    renderSessionScore();
   }
-  state.sessionTotal += remaining;
-  renderSessionScore();
   showResults();
 }
 
 function renderDeferredFeedback(){
-  const isLast = state.index === state.questions.length-1;
+  const isLast = state.index === effectiveTotalQuestions()-1;
   document.getElementById("feedbackZone").innerHTML = `
     <div class="feedback-banner" style="background:var(--teal-100);color:var(--teal-900);">
       <span class="stamp">RECORDED</span>
@@ -2817,7 +3304,7 @@ function renderFeedback(q, status){
   const correctFlag = status==="correct";
   const wrongList = Object.entries(q.explain.wrong||{}).map(([k,txt])=>
     `<div class="why-wrong-item"><b>${k}</b>${txt}</div>`).join("");
-  const isLast = state.index === state.questions.length-1;
+  const isLast = state.index === effectiveTotalQuestions()-1;
   const html = `
     <div class="feedback-banner ${correctFlag?"good":"bad"}">
       <span class="stamp">${correctFlag?"✓ CORRECT (+2)":"✗ INCORRECT (−0.5)"}</span>
@@ -2842,7 +3329,27 @@ function renderFeedback(q, status){
   document.getElementById("feedbackZone").innerHTML = html;
 }
 
+function effectiveTotalQuestions(){
+  return state.quizType==="adaptive" ? ADAPTIVE_TEST_LENGTH : state.questions.length;
+}
 function nextQuestion(){
+  if(state.quizType==="adaptive"){
+    const justAnswered = state.answers[state.index];
+    const justAnsweredTier = state.questions[state.index] ? (state.questions[state.index].difficultyLevel||3) : state.adaptiveCurrentTier;
+    state.adaptiveTierHistory.push({tier:justAnsweredTier, status: justAnswered ? justAnswered.status : "skipped"});
+    if(justAnswered && justAnswered.status==="correct"){
+      state.adaptiveCurrentTier = Math.min(5, state.adaptiveCurrentTier + 1);
+    } else {
+      state.adaptiveCurrentTier = Math.max(1, state.adaptiveCurrentTier - 1);
+    }
+    const nextIndex = state.index + 1;
+    if(nextIndex < ADAPTIVE_TEST_LENGTH){
+      const usedIds = new Set(state.questions.map(q=>q.id));
+      const nextCategory = state.adaptiveCategorySequence[nextIndex];
+      const nextQ = pickAdaptiveQuestion(nextCategory, state.adaptiveCurrentTier, usedIds);
+      if(nextQ) state.questions.push(nextQ);
+    }
+  }
   state.index++;
   renderQuestion();
 }
@@ -2935,6 +3442,12 @@ function showResults(){
   } else if(state.quizType==="freemock"){
     state.freeMockTestProgress = {status:"done", score:pct};
     renderRail();
+  } else if(state.quizType==="adaptive"){
+    state.adaptiveProgress = {status:"done", score:pct};
+    renderRail();
+  } else if(state.quizType==="casestudy"){
+    state.caseStudyProgress[state.testNumberForRetake] = {status:"done", score:pct};
+    renderRail();
   }
 
   const byCat = {};
@@ -2986,8 +3499,11 @@ function showResults(){
   const retakeAction = state.quizType==="full" ? `startFullTest(${state.testNumberForRetake})`
     : state.quizType==="hard" ? `startHardTest(${state.testNumberForRetake})`
     : state.quizType==="freemock" ? `startFreeMockTest()`
+    : state.quizType==="adaptive" ? `startAdaptiveTest()`
+    : state.quizType==="casestudy" ? `startCaseStudy(${state.testNumberForRetake})`
+    : state.quizType==="vocabulary" ? `startVocabQuiz()`
     : `openCustomTestModal()`;
-  const retakeLabel = (state.quizType==="full" || state.quizType==="hard" || state.quizType==="freemock") ? "Retake" : "Create another test";
+  const retakeLabel = (state.quizType==="full" || state.quizType==="hard" || state.quizType==="freemock" || state.quizType==="adaptive" || state.quizType==="casestudy") ? "Retake" : "Create another test";
   const answeredCount = correct + incorrect;
   const answeredTimeSum = state.answers
     .filter(a=>(a.status==="correct" || a.status==="incorrect") && typeof a.timeSpentSeconds==="number")
@@ -3010,6 +3526,22 @@ function showResults(){
       <h3>How this test went</h3>
       <p style="font-size:13.5px;line-height:1.65;margin:0;">${summaryCommentary}</p>
     </div>
+    ${state.quizType==="adaptive" && state.adaptiveTierHistory.length ? `
+    <div class="card">
+      <h3>Difficulty progression</h3>
+      <p style="font-size:12.5px;color:var(--ink-soft);margin:0 0 14px;">Each bar is one question — taller means harder. Difficulty moved up after a correct answer and down after an incorrect or skipped one, the same core mechanic real adaptive testing uses (see note on this test's methodology below).</p>
+      <div style="display:flex;align-items:flex-end;gap:2px;height:70px;">
+        ${state.adaptiveTierHistory.map((h,i)=>{
+          const heightPct = Math.max(12, (h.tier/5)*100);
+          const color = h.status==="correct" ? "var(--correct)" : h.status==="incorrect" ? "var(--incorrect)" : "var(--gold)";
+          return `<div style="flex:1;height:${heightPct}%;background:${color};border-radius:2px 2px 0 0;min-width:2px;" title="Question ${i+1} — tier ${h.tier}, ${h.status}"></div>`;
+        }).join("")}
+      </div>
+      <div style="display:flex;justify-content:space-between;font-size:10px;color:var(--ink-soft);margin-top:4px;">
+        <span>Q1</span><span>Q${state.adaptiveTierHistory.length}</span>
+      </div>
+      <p style="font-size:11px;color:var(--ink-soft);margin:14px 0 0;line-height:1.5;">This uses a heuristic difficulty scale (1–5) based on question format and content complexity — not empirically calibrated Item Response Theory data like the real NCLEX. It's genuinely adaptive in mechanic, not in psychometric validity.</p>
+    </div>` : ""}
     <div class="card">
       <h3>Score by category</h3>
       ${catRows}
@@ -3030,7 +3562,7 @@ function showResults(){
     quiz_type: state.quizType,
     quiz_title: state.quizTitle,
     category_key: null,
-    test_number: (state.quizType==="full" || state.quizType==="hard") ? state.testNumberForRetake : (state.quizType==="custom" ? state.customTestNumber : null),
+    test_number: (state.quizType==="full" || state.quizType==="hard" || state.quizType==="casestudy") ? state.testNumberForRetake : (state.quizType==="custom" ? state.customTestNumber : null),
     score_pct: pct,
     correct_count: correct,
     total_count: total,
@@ -3054,6 +3586,8 @@ document.getElementById("quizOptionsCloseBtn").addEventListener("click", closeQu
 document.getElementById("quizOptionsOverlay").addEventListener("click", e=>{ if(e.target.id==="quizOptionsOverlay") closeQuizOptionsModal(); });
 document.getElementById("customTestCloseBtn").addEventListener("click", closeCustomTestModal);
 document.getElementById("customTestOverlay").addEventListener("click", e=>{ if(e.target.id==="customTestOverlay") closeCustomTestModal(); });
+document.getElementById("vocabQuizCloseBtn").addEventListener("click", closeVocabQuizModal);
+document.getElementById("vocabQuizOverlay").addEventListener("click", e=>{ if(e.target.id==="vocabQuizOverlay") closeVocabQuizModal(); });
 
 function openTermsModal(){
   document.getElementById("termsOverlay").style.display = "flex";
@@ -3153,7 +3687,8 @@ async function openUpgradeModal(){
     const hasDiscount = p.full_price_usd && Number(p.full_price_usd) > Number(p.price_usd);
     const pctOff = hasDiscount ? Math.round((1 - Number(p.price_usd)/Number(p.full_price_usd)) * 100) : 0;
     return `
-    <div class="pricing-card">
+    <div class="pricing-card ${p.recommended ? "pricing-card-recommended" : ""}">
+      ${p.recommended ? `<div class="p-recommended-badge">RECOMMENDED</div>` : ""}
       <div class="p-label">${p.label}</div>
       ${hasDiscount ? `<div class="p-discount-badge">${pctOff}% OFF</div>` : ""}
       ${hasDiscount ? `<div class="p-full-price">$${Number(p.full_price_usd).toFixed(2)}</div>` : ""}
@@ -3223,6 +3758,9 @@ async function goAdmin(){
             <input type="number" step="0.01" min="0" id="price-${p.id}" value="${p.price_usd}" style="width:80px;border:1px solid var(--line);border-radius:6px;padding:6px 8px;font-family:'IBM Plex Mono',monospace;">
           </label>
           <span style="font-size:11.5px;color:var(--ink-soft);">every ${p.duration_days} days</span>
+          <label style="display:flex;align-items:center;gap:4px;font-size:11px;color:var(--ink-soft);">
+            <input type="checkbox" id="recommended-${p.id}" ${p.recommended?"checked":""}> Recommended
+          </label>
           <button type="button" class="link-btn" onclick="saveAdminPricing('${p.id}')">Save</button>
           <span id="priceSaved-${p.id}" style="font-size:11.5px;color:var(--teal-600);"></span>
         </div>
@@ -3235,9 +3773,9 @@ async function goAdmin(){
       <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:8px;margin-bottom:12px;">
         <input type="text" id="newPromoCode" placeholder="CODE" style="border:1px solid var(--line);border-radius:6px;padding:8px;font-family:'IBM Plex Mono',monospace;text-transform:uppercase;">
         <select id="newPromoTier" style="border:1px solid var(--line);border-radius:6px;padding:8px;">
-          <option value="weekly">Weekly</option>
-          <option value="monthly">Monthly</option>
+          <option value="monthly">1 Month</option>
           <option value="quarterly">3 Months</option>
+          <option value="semiannual">6 Months</option>
         </select>
         <input type="number" id="newPromoDays" placeholder="Days" min="1" style="border:1px solid var(--line);border-radius:6px;padding:8px;">
         <input type="number" id="newPromoMaxUses" placeholder="Max uses (blank=∞)" min="1" style="border:1px solid var(--line);border-radius:6px;padding:8px;">
@@ -3299,8 +3837,9 @@ async function saveAdminPricing(tierId){
   const fullPriceRaw = document.getElementById("fullPrice-"+tierId).value.trim();
   const fullVal = fullPriceRaw ? parseFloat(fullPriceRaw) : null;
   if(fullPriceRaw && (isNaN(fullVal) || fullVal < 0)) return;
+  const recommended = document.getElementById("recommended-"+tierId).checked;
   try{
-    const { error } = await sbClient.from("pricing_config").update({ price_usd: val, full_price_usd: fullVal }).eq("id", tierId);
+    const { error } = await sbClient.from("pricing_config").update({ price_usd: val, full_price_usd: fullVal, recommended }).eq("id", tierId);
     if(error) throw error;
     pricingCache = null; // force reload next time the upgrade modal opens
     const savedEl = document.getElementById("priceSaved-"+tierId);
@@ -3388,9 +3927,9 @@ async function searchAdminUser(){
         <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:10px;">
           <select id="grantTier">
             <option value="free" ${data.subscription_tier==="free"?"selected":""}>Free (no subscription)</option>
-            <option value="weekly" ${data.subscription_tier==="weekly"?"selected":""}>Weekly</option>
-            <option value="monthly" ${data.subscription_tier==="monthly"?"selected":""}>Monthly</option>
+            <option value="monthly" ${data.subscription_tier==="monthly"?"selected":""}>1 Month</option>
             <option value="quarterly" ${data.subscription_tier==="quarterly"?"selected":""}>3 Months</option>
+            <option value="semiannual" ${data.subscription_tier==="semiannual"?"selected":""}>6 Months</option>
           </select>
           <input type="date" id="grantExpiry" value="${expiryStr}" style="border:1px solid var(--line);border-radius:6px;padding:7px 8px;">
           <button type="button" class="btn" onclick="grantAdminUserAccess('${data.id}')">Save access</button>
@@ -3425,6 +3964,8 @@ async function boot(){
   try{
     QUESTIONS = await loadQuestionBank();
     CONCEPTS = await loadConceptBank();
+    CASE_STUDIES = await loadCaseStudies();
+    VOCABULARY = await loadVocabulary();
     renderRail();
     await initAuth();
     goHome();
