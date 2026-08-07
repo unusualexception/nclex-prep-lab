@@ -296,6 +296,10 @@
   .case-scenario-content{font-size:13.5px;line-height:1.6;color:var(--ink);}
   .stem{font-size:17px;line-height:1.55;margin:0 0 18px;font-weight:500;}
   .sata-note{font-size:12px;color:var(--blue);font-weight:600;margin:-10px 0 14px;font-family:'IBM Plex Mono',monospace;}
+  .calc-input-wrap{margin-bottom:16px;}
+  .calc-input{border:2px solid var(--line);border-radius:8px;padding:12px 14px;font-size:20px;font-family:'IBM Plex Mono',monospace;width:160px;color:var(--ink);}
+  .calc-input:focus{outline:none;border-color:var(--teal-600);}
+  .calc-unit{font-size:15px;color:var(--ink-soft);font-weight:600;}
   .options{display:flex;flex-direction:column;gap:9px;margin-bottom:6px;}
   .opt{
     display:flex;align-items:flex-start;gap:12px;
@@ -2325,7 +2329,8 @@ async function loadQuestionBank(){
           id:r.id, category:r.category, type:r.type, subtopic:r.subtopic,
           stem:r.stem, options:r.options, correct:r.correct, explain:r.explain,
           difficulty:r.difficulty || "medium",
-          difficultyLevel: r.difficulty_level || 3
+          difficultyLevel: r.difficulty_level || 3,
+          tolerance: r.tolerance, unit: r.unit
         }));
       }
     }catch(e){
@@ -3117,6 +3122,7 @@ function renderQuestion(){
   const c = CAT[q.category];
   const pct = Math.round((state.index/state.questions.length)*100);
   const isSata = q.type==="sata";
+  const isCalc = q.type==="calc";
   const isCaseStudy = state.quizType==="casestudy";
   const scenarioPanel = isCaseStudy ? `
     <div class="case-scenario-panel">
@@ -3142,13 +3148,24 @@ function renderQuestion(){
     <span class="cat-tag" style="background:${c.color}">${c.label} · ${q.subtopic}</span>
     <p class="stem">${q.stem}</p>
     ${isSata ? `<div class="sata-note">SELECT ALL THAT APPLY</div>`:""}
-    <div class="options" id="optionsWrap">
-      ${q.options.map(o=>`
-        <button class="opt ${isSata?"sata selectable":""}" data-key="${o.k}" onclick="${isSata?`toggleSata('${o.k}')`:`answerSingle('${o.k}')`}">
-          <span class="key">${o.k}</span><span>${o.t}</span>
-        </button>`).join("")}
-    </div>
-    ${isSata ? `<div class="submit-row"><button class="btn" onclick="submitSata()">Check Answer</button></div>` : ""}
+    ${isCalc ? `
+      <div class="calc-input-wrap">
+        <label for="calcAnswerInput" class="mono" style="font-size:11px;color:var(--ink-soft);text-transform:uppercase;letter-spacing:.05em;">Your Answer</label>
+        <div style="display:flex;align-items:center;gap:10px;margin-top:8px;">
+          <input type="number" step="any" id="calcAnswerInput" class="calc-input" placeholder="Enter a number" autocomplete="off" onkeypress="if(event.key==='Enter') submitCalcAnswer();">
+          ${q.unit ? `<span class="calc-unit mono">${q.unit}</span>` : ""}
+        </div>
+      </div>
+      <div class="submit-row"><button class="btn" id="calcSubmitBtn" onclick="submitCalcAnswer()">Check Answer</button></div>
+    ` : `
+      <div class="options" id="optionsWrap">
+        ${q.options.map(o=>`
+          <button class="opt ${isSata?"sata selectable":""}" data-key="${o.k}" onclick="${isSata?`toggleSata('${o.k}')`:`answerSingle('${o.k}')`}">
+            <span class="key">${o.k}</span><span>${o.t}</span>
+          </button>`).join("")}
+      </div>
+      ${isSata ? `<div class="submit-row"><button class="btn" onclick="submitSata()">Check Answer</button></div>` : ""}
+    `}
     <div class="nav-row" style="margin-top:2px;">
       <button class="link-btn" style="color:var(--ink-soft);" onclick="skipQuestion()">Skip this question (scores 0) →</button>
     </div>
@@ -3235,6 +3252,36 @@ function submitSata(){
     renderFeedback(q, status);
   } else {
     document.querySelectorAll("#optionsWrap .opt").forEach(btn=>btn.classList.add("locked"));
+    renderDeferredFeedback();
+  }
+}
+
+/* Calculation / fill-in-the-blank questions. Correctness uses a tolerance
+   band (q.tolerance) rather than exact match, since these answers are
+   entered as free-form numbers — e.g. a student typing 12.5 vs 12.50
+   should both be marked correct. Deliberately reuses recordAnswer(),
+   renderFeedback(), and renderDeferredFeedback() completely unmodified:
+   q.explain already has the same {concept, why, wrong, quick} shape those
+   functions expect, with "why" holding the worked calculation steps and
+   "wrong" simply left empty since there's no set of wrong options to list. */
+function submitCalcAnswer(){
+  if(state.locked) return;
+  const input = document.getElementById("calcAnswerInput");
+  const raw = input.value.trim();
+  if(raw==="") return;
+  state.locked = true;
+  const q = state.questions[state.index];
+  const entered = parseFloat(raw);
+  const tolerance = (typeof q.tolerance==="number") ? q.tolerance : 0.01;
+  const isCorrect = !isNaN(entered) && Math.abs(entered - q.correct) <= tolerance;
+  const status = isCorrect ? "correct" : "incorrect";
+  recordAnswer(q, status, raw);
+  input.disabled = true;
+  const btn = document.getElementById("calcSubmitBtn");
+  if(btn) btn.disabled = true;
+  if(state.feedbackMode==="immediate"){
+    renderFeedback(q, status);
+  } else {
     renderDeferredFeedback();
   }
 }
@@ -3483,8 +3530,9 @@ function showResults(){
     const status = a ? a.status : "skipped";
     const wrongList = Object.entries(q.explain.wrong||{}).map(([k,txt])=>
       `<div class="why-wrong-item"><b>${k}</b>${txt}</div>`).join("");
-    const yourAnswer = (a && a.selected!=null) ? (Array.isArray(a.selected) ? a.selected.join(", ") : a.selected) : "— (skipped)";
-    const correctAnswer = Array.isArray(q.correct) ? q.correct.join(", ") : q.correct;
+    const unitSuffix = (q.type==="calc" && q.unit) ? " "+q.unit : "";
+    const yourAnswer = (a && a.selected!=null) ? (Array.isArray(a.selected) ? a.selected.join(", ") : a.selected+unitSuffix) : "— (skipped)";
+    const correctAnswer = Array.isArray(q.correct) ? q.correct.join(", ") : q.correct+unitSuffix;
     return `
     <details class="missed-item">
       <summary><span>${statusIcon[status]} ${q.subtopic} — ${q.explain.concept}</span><span class="arrow">›</span></summary>
