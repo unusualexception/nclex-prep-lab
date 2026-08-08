@@ -641,9 +641,44 @@ const SUPABASE_URL = "https://qigjnloopmyaguhupzzh.supabase.co";
 const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFpZ2pubG9vcG15YWd1aHVwenpoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODU3Mjc0NDEsImV4cCI6MjEwMTMwMzQ0MX0._hoiYmJL4CInio669n-Qzi3pwDR8VmRarYoO04IusKQ";
 
 let sbClient = null;
+let sbLibraryFailedToLoad = false; // distinct from "not configured" — credentials are fine, the CDN script itself didn't load
 const supabaseConfigured = !SUPABASE_URL.startsWith("YOUR_") && !SUPABASE_ANON_KEY.startsWith("YOUR_");
-if(supabaseConfigured && window.supabase){
-  sbClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+function tryInitSupabaseClient(){
+  if(sbClient) return true;
+  if(!supabaseConfigured || !window.supabase) return false;
+  try{
+    sbClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+    return true;
+  }catch(e){
+    console.error("Supabase client creation failed even though the library loaded:", e);
+    return false;
+  }
+}
+tryInitSupabaseClient(); // normal path: the <script> tag in <head> already loaded window.supabase by now
+
+// If that didn't work, the CDN script may have been blocked, slow, or briefly
+// down (ad-blocker, firewall, flaky network) rather than credentials being
+// missing. Retry for a few seconds, then fall back to a second CDN mirror
+// before giving up — this is a resilience gap the original single-attempt
+// version had no protection against.
+if(!sbClient && supabaseConfigured){
+  let attempts = 0;
+  const retryTimer = setInterval(()=>{
+    attempts++;
+    if(tryInitSupabaseClient() || attempts >= 6){
+      clearInterval(retryTimer);
+      if(!sbClient){
+        console.error("Supabase JS library never became available after retries — likely blocked by an ad-blocker/firewall, or the CDN was unreachable. Trying a fallback CDN now.");
+        const fallback = document.createElement("script");
+        fallback.src = "https://unpkg.com/@supabase/supabase-js@2/dist/umd/supabase.min.js";
+        fallback.onload = ()=>{ tryInitSupabaseClient(); };
+        fallback.onerror = ()=>{ sbLibraryFailedToLoad = true; console.error("Fallback CDN also failed to load the Supabase library."); };
+        document.head.appendChild(fallback);
+        setTimeout(()=>{ if(!sbClient) sbLibraryFailedToLoad = true; }, 4000);
+      }
+    }
+  }, 500);
 }
 
 /* =========================================================================
@@ -795,8 +830,11 @@ async function handleAuthSubmit(evt){
   evt.preventDefault();
   const errEl = document.getElementById("authError");
   errEl.textContent = "";
+  if(!sbClient) tryInitSupabaseClient(); // one more attempt right now, in case the library finished loading since page load
   if(!sbClient){
-    errEl.textContent = "Supabase isn't connected yet — accounts can't be created until it's set up.";
+    errEl.textContent = supabaseConfigured
+      ? "Having trouble reaching our backend right now — this can happen with a slow connection, an ad-blocker, or a firewall blocking our library. Please refresh the page and try again in a moment."
+      : "Supabase isn't connected yet — accounts can't be created until it's set up.";
     return;
   }
   const email = document.getElementById("authEmail").value.trim();
@@ -965,8 +1003,12 @@ async function clearAllHistory(){
 
 async function saveResultToSupabase(record, questions, answers){
   const statusEl = document.getElementById("saveStatus");
+  if(!sbClient) tryInitSupabaseClient();
   if(!sbClient){
-    if(statusEl) statusEl.innerHTML = `<span class="save-status off">Not saved — Supabase isn't connected yet (results shown here only)</span>`;
+    const msg = supabaseConfigured
+      ? "Not saved — having trouble reaching our backend right now (results shown here only)"
+      : "Not saved — Supabase isn't connected yet (results shown here only)";
+    if(statusEl) statusEl.innerHTML = `<span class="save-status off">${msg}</span>`;
     return;
   }
   const userId = authState.user ? authState.user.id : null;
