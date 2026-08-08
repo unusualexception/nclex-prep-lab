@@ -310,6 +310,16 @@
   .cloze-select:disabled{cursor:default;opacity:.9;}
   .cloze-select.cloze-correct{border-color:var(--correct);background:var(--correct-bg);color:var(--correct);}
   .cloze-select.cloze-incorrect{border-color:var(--incorrect);background:var(--incorrect-bg);color:var(--incorrect);}
+  .matrix-wrap{overflow-x:auto;margin-bottom:16px;}
+  .matrix-table{border-collapse:collapse;width:100%;font-size:13.5px;}
+  .matrix-table th{background:var(--teal-100);color:var(--teal-900);padding:10px 8px;font-size:12px;text-align:center;border:1px solid var(--line);}
+  .matrix-table td{padding:10px 8px;border:1px solid var(--line);text-align:center;}
+  .matrix-row-label,.matrix-row-header{text-align:left !important;font-size:13px;color:var(--ink);max-width:260px;}
+  .matrix-table input[type="radio"],.matrix-table input[type="checkbox"]{width:18px;height:18px;cursor:pointer;}
+  .matrix-table input:disabled{cursor:default;}
+  .matrix-cell.matrix-correct{background:var(--correct-bg);}
+  .matrix-cell.matrix-missed{background:var(--gold-100);}
+  .matrix-cell.matrix-incorrect{background:var(--incorrect-bg);}
   .options{display:flex;flex-direction:column;gap:9px;margin-bottom:6px;}
   .opt{
     display:flex;align-items:flex-start;gap:12px;
@@ -2342,7 +2352,8 @@ async function loadQuestionBank(){
           difficulty:r.difficulty || "medium",
           difficultyLevel: r.difficulty_level || 3,
           tolerance: r.tolerance, unit: r.unit,
-          clozeText: r.cloze_text, clozeBlanks: r.cloze_blanks
+          clozeText: r.cloze_text, clozeBlanks: r.cloze_blanks,
+          matrixType: r.matrix_type, matrixColumns: r.matrix_columns, matrixRows: r.matrix_rows
         }));
       }
     }catch(e){
@@ -2368,6 +2379,7 @@ const state = {
   answers:[],              // {qId, status:"correct"|"incorrect"|"skipped", selected}
   locked:false,
   selectedSata:new Set(),
+  matrixSelections:[],
   sessionCorrect:0,
   sessionTotal:0,
   testProgress:{},         // testNumber -> {status, score}
@@ -2648,6 +2660,18 @@ function renderRail(){
     </button>
   ` : "";
 
+  const matrixQuestionCount = QUESTIONS.filter(q=>q.type==="matrix").length;
+  const matrixSection = matrixQuestionCount ? `
+    <div class="rail-title" style="margin-top:16px;">Matrix/Grid Practice</div>
+    <div class="rail-note" style="border-top:none;">Grid-based questions — sort findings or actions into the right columns, row by row. ${matrixQuestionCount} questions so far, growing toward a full set.</div>
+    <button class="rail-btn ${state.quizKey==="matrixpractice"?"active":""}" onclick="startMatrixPractice()">
+      <span class="id mono">▦ MATRIX PRACTICE</span>
+      <span style="display:flex;align-items:center;gap:6px;">
+        <span class="mono" style="font-size:10.5px;opacity:.8;">${matrixQuestionCount} Qs</span>
+      </span>
+    </button>
+  ` : "";
+
   const caseAccess = caseStudyAccessState();
   const caseLocked = caseAccess !== "open";
   const caseLockBadge = caseLocked ? LOCK_ICON : "";
@@ -2680,7 +2704,7 @@ function renderRail(){
   ` + regularBtns + `
     <div class="rail-title" style="margin-top:16px;">Hard Tests</div>
     <div class="rail-note" style="border-top:none;">50 questions per test, category-weighted.</div>
-  ` + hardBtns + adaptiveSection + calcSection + clozeSection + caseSection;
+  ` + hardBtns + adaptiveSection + calcSection + clozeSection + matrixSection + caseSection;
 }
 function renderSessionScore(){
   document.getElementById("sessionScore").textContent = `${state.sessionCorrect} / ${state.sessionTotal} correct this session`;
@@ -2909,6 +2933,14 @@ function startClozePractice(){
   document.getElementById("quizOptionsTitle").textContent = "Cloze Practice";
   document.getElementById("quizOptionsOverlay").style.display = "flex";
 }
+function startMatrixPractice(){
+  if(!authState.user){ document.getElementById("authOverlay").style.display = "flex"; return; }
+  const matrixQuestions = QUESTIONS.filter(q=>q.type==="matrix");
+  if(matrixQuestions.length===0){ alert("No matrix/grid questions are available right now — please try again shortly."); return; }
+  pendingStart = {kind:"matrixpractice", key:null};
+  document.getElementById("quizOptionsTitle").textContent = "Matrix/Grid Practice";
+  document.getElementById("quizOptionsOverlay").style.display = "flex";
+}
 function closeQuizOptionsModal(){
   document.getElementById("quizOptionsOverlay").style.display = "none";
   pendingStart = null;
@@ -2924,6 +2956,7 @@ function confirmQuizMode(mode){
   else if(p.kind==="casestudy") actuallyStartCaseStudy(p.key);
   else if(p.kind==="calcpractice") actuallyStartCalcPractice();
   else if(p.kind==="clozepractice") actuallyStartClozePractice();
+  else if(p.kind==="matrixpractice") actuallyStartMatrixPractice();
   else actuallyStartFullTest(p.key);
 }
 function actuallyStartCalcPractice(){
@@ -2938,6 +2971,15 @@ function actuallyStartCalcPractice(){
 function actuallyStartClozePractice(){
   const qs = shuffle(QUESTIONS.filter(q=>q.type==="cloze"));
   state.view="quiz"; state.quizKey="clozepractice"; state.quizType="clozepractice"; state.quizTitle="Cloze Practice";
+  state.testNumberForRetake = null;
+  state.questions=qs; state.index=0; state.answers=[]; state.locked=false; state.selectedSata=new Set();
+  renderRail();
+  startQuizTimer();
+  renderQuestion();
+}
+function actuallyStartMatrixPractice(){
+  const qs = shuffle(QUESTIONS.filter(q=>q.type==="matrix"));
+  state.view="quiz"; state.quizKey="matrixpractice"; state.quizType="matrixpractice"; state.quizTitle="Matrix/Grid Practice";
   state.testNumberForRetake = null;
   state.questions=qs; state.index=0; state.answers=[]; state.locked=false; state.selectedSata=new Set();
   renderRail();
@@ -3188,7 +3230,7 @@ function renderQuestion(){
     return renderRecap();
   }
   state._recapShown = false;
-  state.locked = false; state.selectedSata = new Set();
+  state.locked = false; state.selectedSata = new Set(); state.matrixSelections = [];
   state.questionStartTime = Date.now();
   const q = state.questions[state.index];
   const c = CAT[q.category];
@@ -3196,6 +3238,7 @@ function renderQuestion(){
   const isSata = q.type==="sata";
   const isCalc = q.type==="calc";
   const isCloze = q.type==="cloze";
+  const isMatrix = q.type==="matrix";
   const isCaseStudy = state.quizType==="casestudy";
   const scenarioPanel = isCaseStudy ? `
     <div class="case-scenario-panel">
@@ -3222,6 +3265,7 @@ function renderQuestion(){
     <p class="stem">${q.stem}</p>
     ${isSata ? `<div class="sata-note">SELECT ALL THAT APPLY</div>`:""}
     ${isCloze ? `<div class="cloze-note">SELECT AN OPTION FOR EACH BLANK</div>` : ""}
+    ${isMatrix ? `<div class="cloze-note">${q.matrixType==="choice" ? "SELECT ONE OPTION PER ROW" : "SELECT ALL THAT APPLY IN EACH ROW"}</div>` : ""}
     ${isCalc ? `
       <div class="calc-input-wrap">
         <label for="calcAnswerInput" class="mono" style="font-size:11px;color:var(--ink-soft);text-transform:uppercase;letter-spacing:.05em;">Your Answer</label>
@@ -3234,6 +3278,9 @@ function renderQuestion(){
     ` : isCloze ? `
       <div class="cloze-passage" id="clozePassage">${renderClozeContent(q)}</div>
       <div class="submit-row"><button class="btn" id="clozeSubmitBtn" onclick="submitClozeAnswer()">Check Answer</button></div>
+    ` : isMatrix ? `
+      <div class="matrix-wrap" id="matrixWrap">${renderMatrixContent(q)}</div>
+      <div class="submit-row"><button class="btn" id="matrixSubmitBtn" onclick="submitMatrixAnswer()">Check Answer</button></div>
     ` : `
       <div class="options" id="optionsWrap">
         ${q.options.map(o=>`
@@ -3439,6 +3486,94 @@ function submitClozeAnswer(){
   }
 }
 
+/* Matrix/Grid questions have two NCSBN variants, both scored per-row then
+   summed for the item total:
+   - 'choice': one radio-button selection per row, each row scored 0/1
+     (correct=1pt, incorrect=0, no penalty) — the same mechanic cloze
+     already uses per-blank, applied per row instead.
+   - 'response': one-or-more checkbox selections per row, each row scored
+     with the +/- rule (+1 per correct selection, -1 per incorrect,
+     floored at 0 for that row) — the same mechanic SATA already uses,
+     applied independently per row rather than one flat option list. */
+function renderMatrixContent(q){
+  const isChoice = q.matrixType==="choice";
+  state.matrixSelections = q.matrixRows.map(()=> isChoice ? null : new Set());
+  const headerRow = `<tr><th class="matrix-row-header"></th>${q.matrixColumns.map(c=>`<th>${c}</th>`).join("")}</tr>`;
+  const bodyRows = q.matrixRows.map((row,rIdx)=>`
+    <tr>
+      <td class="matrix-row-label">${row.label}</td>
+      ${q.matrixColumns.map((col,cIdx)=>`
+        <td class="matrix-cell">
+          <input type="${isChoice?'radio':'checkbox'}" name="matrixRow${rIdx}" data-row="${rIdx}" data-col="${cIdx}"
+            onclick="${isChoice?'selectMatrixChoice(this)':'toggleMatrixResponse(this)'}">
+        </td>`).join("")}
+    </tr>`).join("");
+  return `<table class="matrix-table"><thead>${headerRow}</thead><tbody>${bodyRows}</tbody></table>`;
+}
+function selectMatrixChoice(el){
+  if(state.locked) return;
+  const q = state.questions[state.index];
+  state.matrixSelections[parseInt(el.dataset.row)] = q.matrixColumns[parseInt(el.dataset.col)];
+}
+function toggleMatrixResponse(el){
+  if(state.locked) return;
+  const q = state.questions[state.index];
+  const rowIdx = parseInt(el.dataset.row);
+  const col = q.matrixColumns[parseInt(el.dataset.col)];
+  if(el.checked) state.matrixSelections[rowIdx].add(col);
+  else state.matrixSelections[rowIdx].delete(col);
+}
+function submitMatrixAnswer(){
+  if(state.locked) return;
+  const q = state.questions[state.index];
+  const isChoice = q.matrixType==="choice";
+  const allAnswered = state.matrixSelections.every(sel=> isChoice ? sel!==null : sel.size>0);
+  if(!allAnswered) return;
+  state.locked = true;
+  let totalPoints = 0, totalMax = 0;
+  const rowResults = q.matrixRows.map((row,rIdx)=>{
+    if(isChoice){
+      const selected = state.matrixSelections[rIdx];
+      const isCorrect = selected === row.correct;
+      totalPoints += isCorrect ? 1 : 0; totalMax += 1;
+      return { selected, correct: row.correct, isCorrect, points: isCorrect?1:0, max:1 };
+    } else {
+      const selectedSet = state.matrixSelections[rIdx];
+      const correctSet = new Set(row.correct);
+      let correctSelected=0, incorrectSelected=0;
+      selectedSet.forEach(c=>{ if(correctSet.has(c)) correctSelected++; else incorrectSelected++; });
+      const maxPoints = correctSet.size;
+      const flooredPoints = Math.max(0, correctSelected - incorrectSelected);
+      totalPoints += flooredPoints; totalMax += maxPoints;
+      return { selected: Array.from(selectedSet), correct: row.correct, correctSelected, incorrectSelected, points: flooredPoints, max: maxPoints };
+    }
+  });
+  const fraction = totalMax>0 ? totalPoints/totalMax : 0;
+  const weightedPoints = Math.round(fraction * 2 * 10) / 10;
+  const status = fraction===1 ? "correct" : fraction===0 ? "incorrect" : "partial";
+  const selectedForRecord = isChoice ? state.matrixSelections.slice() : state.matrixSelections.map(s=>Array.from(s));
+  recordAnswer(q, status, selectedForRecord, weightedPoints);
+  const matrixDetail = { rowResults, totalPoints, totalMax, weightedPoints, isChoice };
+  state.answers[state.answers.length-1].matrixDetail = matrixDetail;
+  document.querySelectorAll(".matrix-cell input").forEach(inp=>{
+    inp.disabled = true;
+    const rIdx = parseInt(inp.dataset.row), colIdx = parseInt(inp.dataset.col);
+    const col = q.matrixColumns[colIdx], row = q.matrixRows[rIdx];
+    const isCorrectCell = isChoice ? (col===row.correct) : row.correct.includes(col);
+    const wasChecked = inp.checked;
+    if(isCorrectCell && wasChecked) inp.closest("td").classList.add("matrix-correct");
+    else if(isCorrectCell && !wasChecked) inp.closest("td").classList.add("matrix-missed");
+    else if(!isCorrectCell && wasChecked) inp.closest("td").classList.add("matrix-incorrect");
+  });
+  const btn = document.getElementById("matrixSubmitBtn");
+  if(btn) btn.disabled = true;
+  if(state.feedbackMode==="immediate"){
+    renderFeedback(q, status, null, null, matrixDetail);
+  } else {
+    renderDeferredFeedback();
+  }
+}
+
 function skipQuestion(){
   if(state.locked) return;
   state.locked = true;
@@ -3510,7 +3645,7 @@ function recordAnswer(q, status, selected, points){
   renderSessionScore();
 }
 
-function renderFeedback(q, status, sataDetail, clozeDetail){
+function renderFeedback(q, status, sataDetail, clozeDetail, matrixDetail){
   const isPartial = status==="partial";
   const isGood = status==="correct";
   const bannerClass = isGood ? "good" : isPartial ? "partial" : "bad";
@@ -3525,6 +3660,12 @@ function renderFeedback(q, status, sataDetail, clozeDetail){
     if(isGood){ stamp = `✓ CORRECT — Full Credit (+${pts})`; subline = "Every blank was filled correctly."; }
     else if(isPartial){ stamp = `◐ PARTIAL CREDIT (+${pts})`; subline = `${clozeDetail.correctCount} of ${clozeDetail.maxPoints} blank(s) correct — each drop-down is scored independently (0/1 per blank, no penalty for a wrong one), then summed for the item total.`; }
     else { stamp = `✗ NO CREDIT (0 pts)`; subline = "None of the blanks were correct — each drop-down is scored independently, so this nets to 0."; }
+  } else if(matrixDetail){
+    const pts = matrixDetail.weightedPoints;
+    const ruleNote = matrixDetail.isChoice ? "0/1 per row, no penalty" : "+/- per row, floored at 0";
+    if(isGood){ stamp = `✓ CORRECT — Full Credit (+${pts})`; subline = "Every row was answered correctly."; }
+    else if(isPartial){ stamp = `◐ PARTIAL CREDIT (+${pts})`; subline = `${matrixDetail.totalPoints} of ${matrixDetail.totalMax} row-point(s) earned — each row is scored independently (${ruleNote}), then summed for the item total.`; }
+    else { stamp = `✗ NO CREDIT (0 pts)`; subline = "None of the rows earned points — each row is scored independently, so this nets to 0."; }
   } else {
     stamp = isGood ? "✓ CORRECT (+2)" : "✗ INCORRECT (0 pts)";
     subline = isGood ? "Nice — that's the concept locked in." : "Let's break down what was missed.";
@@ -3718,16 +3859,27 @@ function showResults(){
     const wrongList = Object.entries(q.explain.wrong||{}).map(([k,txt])=>
       `<div class="why-wrong-item"><b>${k}</b>${txt}</div>`).join("");
     const unitSuffix = (q.type==="calc" && q.unit) ? " "+q.unit : "";
+    const isMatrixQ = q.type==="matrix";
     const yourAnswer = (a && a.selected!=null) ? (Array.isArray(a.selected) ? a.selected.join(", ") : a.selected+unitSuffix) : "— (skipped)";
     const correctAnswer = Array.isArray(q.correct) ? q.correct.join(", ") : q.correct+unitSuffix;
     const sataNote = (a && a.sataDetail) ? `<p style="font-size:11.5px;color:var(--gold);margin:0 0 10px;" class="mono">+/- scoring: ${a.sataDetail.correctSelected} correct${a.sataDetail.incorrectSelected?` − ${a.sataDetail.incorrectSelected} incorrect`:""} → ${a.sataDetail.weightedPoints} of 2 pts</p>` : "";
     const clozeNote = (a && a.clozeDetail) ? `<p style="font-size:11.5px;color:var(--gold);margin:0 0 10px;" class="mono">0/1 per blank: ${a.clozeDetail.correctCount} of ${a.clozeDetail.maxPoints} correct → ${a.clozeDetail.weightedPoints} of 2 pts</p>` : "";
+    const matrixNote = (a && a.matrixDetail) ? `
+      <div style="margin:0 0 10px;">
+        ${a.matrixDetail.rowResults.map((r,idx)=>{
+          const rowLabel = q.matrixRows[idx].label;
+          const yourSel = Array.isArray(r.selected) ? (r.selected.join(", ")||"(none)") : (r.selected || "(none)");
+          const correctSel = Array.isArray(r.correct) ? r.correct.join(", ") : r.correct;
+          return `<p style="font-size:11.5px;color:var(--ink-soft);margin:2px 0;" class="mono">${rowLabel} — you: "${yourSel}" · correct: "${correctSel}" (${r.points}/${r.max})</p>`;
+        }).join("")}
+        <p style="font-size:11.5px;color:var(--gold);margin:6px 0 0;" class="mono">${a.matrixDetail.isChoice?"0/1":"+/-"} per row: ${a.matrixDetail.totalPoints} of ${a.matrixDetail.totalMax} row-point(s) → ${a.matrixDetail.weightedPoints} of 2 pts</p>
+      </div>` : "";
     return `
     <details class="missed-item">
       <summary><span>${statusIcon[status]} ${q.subtopic} — ${q.explain.concept}</span><span class="arrow">›</span></summary>
       <p class="stem" style="font-size:14px;">${q.stem}</p>
-      <p style="font-size:12.5px;color:var(--ink-soft);margin:0 0 10px;" class="mono">Your answer: ${yourAnswer} &nbsp;·&nbsp; Correct: ${correctAnswer}</p>
-      ${sataNote}${clozeNote}
+      ${isMatrixQ ? "" : `<p style="font-size:12.5px;color:var(--ink-soft);margin:0 0 10px;" class="mono">Your answer: ${yourAnswer} &nbsp;·&nbsp; Correct: ${correctAnswer}</p>`}
+      ${sataNote}${clozeNote}${matrixNote}
       <ul class="bullets">${q.explain.why.map(w=>`<li>${w}</li>`).join("")}</ul>
       ${wrongList ? `<div class="explain-block">${wrongList}</div>` : ""}
       <div class="quickcheck"><span class="lightning">⚡</span><span>${q.explain.quick}</span></div>
@@ -3742,8 +3894,9 @@ function showResults(){
     : state.quizType==="vocabulary" ? `startVocabQuiz()`
     : state.quizType==="calcpractice" ? `startCalcPractice()`
     : state.quizType==="clozepractice" ? `startClozePractice()`
+    : state.quizType==="matrixpractice" ? `startMatrixPractice()`
     : `openCustomTestModal()`;
-  const retakeLabel = (state.quizType==="full" || state.quizType==="hard" || state.quizType==="freemock" || state.quizType==="adaptive" || state.quizType==="casestudy" || state.quizType==="calcpractice" || state.quizType==="clozepractice") ? "Retake" : "Create another test";
+  const retakeLabel = (state.quizType==="full" || state.quizType==="hard" || state.quizType==="freemock" || state.quizType==="adaptive" || state.quizType==="casestudy" || state.quizType==="calcpractice" || state.quizType==="clozepractice" || state.quizType==="matrixpractice") ? "Retake" : "Create another test";
   const answeredCount = correct + partial + incorrect;
   const answeredTimeSum = state.answers
     .filter(a=>(a.status==="correct" || a.status==="partial" || a.status==="incorrect") && typeof a.timeSpentSeconds==="number")
