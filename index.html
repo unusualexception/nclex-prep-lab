@@ -681,6 +681,26 @@ if(!sbClient && supabaseConfigured){
   }, 500);
 }
 
+/* boot() must not race ahead of Supabase initialization — if it calls
+   loadQuestionBank() before sbClient is ready, that function silently
+   falls back to the tiny local FALLBACK_QUESTIONS set (about 80 questions,
+   missing every calc/cloze/matrix item entirely), which is exactly the
+   kind of "exam page fails to load" symptom a slow-but-working CDN causes.
+   This gives the retry/fallback-CDN logic above a genuine window to
+   finish before proceeding, rather than checking sbClient once and moving on. */
+function waitForSupabaseClient(maxWaitMs){
+  return new Promise(resolve=>{
+    if(sbClient || !supabaseConfigured || sbLibraryFailedToLoad){ resolve(); return; }
+    const start = Date.now();
+    const check = setInterval(()=>{
+      if(sbClient || sbLibraryFailedToLoad || (Date.now()-start) >= maxWaitMs){
+        clearInterval(check);
+        resolve();
+      }
+    }, 200);
+  });
+}
+
 /* =========================================================================
    AUTH — email/password accounts via Supabase Auth, with an anonymous
    guest fallback. Guest IDs are generated fresh each browser session
@@ -4395,6 +4415,8 @@ async function grantAdminUserAccess(userId){
 }
 
 async function boot(){
+  document.getElementById("main").innerHTML = `<div class="card"><h3>Connecting…</h3></div>`;
+  await waitForSupabaseClient(6000); // give init (including retries/fallback CDN) a genuine chance before proceeding — this is what previously let boot() race ahead of a slow-but-working CDN load
   document.getElementById("main").innerHTML = `<div class="card"><h3>Loading question bank…</h3></div>`;
   try{
     QUESTIONS = await loadQuestionBank();
@@ -4409,7 +4431,7 @@ async function boot(){
     document.getElementById("main").innerHTML = `
       <div class="card">
         <h3>Something went wrong loading the app</h3>
-        <p style="font-size:13.5px;color:var(--ink-soft);">Open your browser console (F12) for the exact error. Common cause: a malformed SUPABASE_URL or SUPABASE_ANON_KEY.</p>
+        <p style="font-size:13.5px;color:var(--ink-soft);">Open your browser console (F12) for the exact error. This can happen from a network issue reaching our backend — try refreshing the page.</p>
       </div>`;
   }
 }
