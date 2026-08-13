@@ -336,6 +336,15 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
   .matrix-cell.matrix-correct{background:var(--correct-bg);}
   .matrix-cell.matrix-missed{background:var(--gold-100);}
   .matrix-cell.matrix-incorrect{background:var(--incorrect-bg);}
+  .hotspot-label{font-size:11px;font-weight:700;color:var(--teal-900);text-transform:uppercase;letter-spacing:.05em;margin-bottom:8px;font-family:'IBM Plex Mono',monospace;}
+  .hotspot-passage{font-size:15px;line-height:2.15;color:var(--ink);padding:16px 18px;background:var(--panel);border:1px solid var(--line);border-radius:10px;margin-bottom:16px;}
+  .hotspot-span{cursor:pointer;padding:2px 4px;border-radius:4px;border-bottom:2px dashed var(--teal-600);transition:background .12s,color .12s;}
+  .hotspot-span:hover{background:var(--teal-100);}
+  .hotspot-span.hotspot-selected{background:var(--teal-600);color:#fff;border-bottom-color:var(--teal-600);}
+  .hotspot-span.hotspot-disabled{cursor:default;}
+  .hotspot-span.hotspot-correct{background:var(--correct-bg);color:var(--correct);border-bottom-color:var(--correct);font-weight:600;}
+  .hotspot-span.hotspot-missed{background:var(--gold-100);color:var(--gold);border-bottom-color:var(--gold);font-weight:600;}
+  .hotspot-span.hotspot-incorrect{background:var(--incorrect-bg);color:var(--incorrect);border-bottom-color:var(--incorrect);text-decoration:line-through;}
   .options{display:flex;flex-direction:column;gap:9px;margin-bottom:6px;}
   .opt{
     display:flex;align-items:flex-start;gap:12px;
@@ -2390,7 +2399,8 @@ async function loadQuestionBank(){
           difficultyLevel: r.difficulty_level || 3,
           tolerance: r.tolerance, unit: r.unit,
           clozeText: r.cloze_text, clozeBlanks: r.cloze_blanks,
-          matrixType: r.matrix_type, matrixColumns: r.matrix_columns, matrixRows: r.matrix_rows
+          matrixType: r.matrix_type, matrixColumns: r.matrix_columns, matrixRows: r.matrix_rows,
+          hotspotType: r.hotspot_type, hotspotPassageLabel: r.hotspot_passage_label, hotspotSegments: r.hotspot_segments
         }));
       }
     }catch(e){
@@ -2417,6 +2427,7 @@ const state = {
   locked:false,
   selectedSata:new Set(),
   matrixSelections:[],
+  hotspotSelections:new Set(),
   sessionCorrect:0,
   sessionTotal:0,
   testProgress:{},         // testNumber -> {status, score}
@@ -2709,6 +2720,18 @@ function renderRail(){
     </button>
   ` : "";
 
+  const hotspotQuestionCount = QUESTIONS.filter(q=>q.type==="hotspot").length;
+  const hotspotSection = hotspotQuestionCount ? `
+    <div class="rail-title" style="margin-top:16px;">Hot Spot Practice</div>
+    <div class="rail-note" style="border-top:none;">Highlight the finding(s) directly within a nurses' note, lab report, or med record. ${hotspotQuestionCount} questions so far, growing toward a full set.</div>
+    <button class="rail-btn ${state.quizKey==="hotspotpractice"?"active":""}" onclick="startHotspotPractice()">
+      <span class="id mono">◈ HOT SPOT PRACTICE</span>
+      <span style="display:flex;align-items:center;gap:6px;">
+        <span class="mono" style="font-size:10.5px;opacity:.8;">${hotspotQuestionCount} Qs</span>
+      </span>
+    </button>
+  ` : "";
+
   const caseAccess = caseStudyAccessState();
   const caseLocked = caseAccess !== "open";
   const caseLockBadge = caseLocked ? LOCK_ICON : "";
@@ -2741,7 +2764,7 @@ function renderRail(){
   ` + regularBtns + `
     <div class="rail-title" style="margin-top:16px;">Hard Tests</div>
     <div class="rail-note" style="border-top:none;">50 questions per test, category-weighted.</div>
-  ` + hardBtns + adaptiveSection + calcSection + clozeSection + matrixSection + caseSection;
+  ` + hardBtns + adaptiveSection + calcSection + clozeSection + matrixSection + hotspotSection + caseSection;
 }
 function renderSessionScore(){
   document.getElementById("sessionScore").textContent = `${state.sessionCorrect} / ${state.sessionTotal} correct this session`;
@@ -2978,6 +3001,14 @@ function startMatrixPractice(){
   document.getElementById("quizOptionsTitle").textContent = "Matrix/Grid Practice";
   document.getElementById("quizOptionsOverlay").style.display = "flex";
 }
+function startHotspotPractice(){
+  if(!authState.user){ document.getElementById("authOverlay").style.display = "flex"; return; }
+  const hotspotQuestions = QUESTIONS.filter(q=>q.type==="hotspot");
+  if(hotspotQuestions.length===0){ alert("No hot spot questions are available right now — please try again shortly."); return; }
+  pendingStart = {kind:"hotspotpractice", key:null};
+  document.getElementById("quizOptionsTitle").textContent = "Hot Spot Practice";
+  document.getElementById("quizOptionsOverlay").style.display = "flex";
+}
 function closeQuizOptionsModal(){
   document.getElementById("quizOptionsOverlay").style.display = "none";
   pendingStart = null;
@@ -2994,6 +3025,7 @@ function confirmQuizMode(mode){
   else if(p.kind==="calcpractice") actuallyStartCalcPractice();
   else if(p.kind==="clozepractice") actuallyStartClozePractice();
   else if(p.kind==="matrixpractice") actuallyStartMatrixPractice();
+  else if(p.kind==="hotspotpractice") actuallyStartHotspotPractice();
   else actuallyStartFullTest(p.key);
 }
 function actuallyStartCalcPractice(){
@@ -3017,6 +3049,15 @@ function actuallyStartClozePractice(){
 function actuallyStartMatrixPractice(){
   const qs = shuffle(QUESTIONS.filter(q=>q.type==="matrix"));
   state.view="quiz"; state.quizKey="matrixpractice"; state.quizType="matrixpractice"; state.quizTitle="Matrix/Grid Practice";
+  state.testNumberForRetake = null;
+  state.questions=qs; state.index=0; state.answers=[]; state.locked=false; state.selectedSata=new Set();
+  renderRail();
+  startQuizTimer();
+  renderQuestion();
+}
+function actuallyStartHotspotPractice(){
+  const qs = shuffle(QUESTIONS.filter(q=>q.type==="hotspot"));
+  state.view="quiz"; state.quizKey="hotspotpractice"; state.quizType="hotspotpractice"; state.quizTitle="Hot Spot Practice";
   state.testNumberForRetake = null;
   state.questions=qs; state.index=0; state.answers=[]; state.locked=false; state.selectedSata=new Set();
   renderRail();
@@ -3267,7 +3308,7 @@ function renderQuestion(){
     return renderRecap();
   }
   state._recapShown = false;
-  state.locked = false; state.selectedSata = new Set(); state.matrixSelections = [];
+  state.locked = false; state.selectedSata = new Set(); state.matrixSelections = []; state.hotspotSelections = new Set();
   state.questionStartTime = Date.now();
   const q = state.questions[state.index];
   const c = CAT[q.category];
@@ -3276,6 +3317,7 @@ function renderQuestion(){
   const isCalc = q.type==="calc";
   const isCloze = q.type==="cloze";
   const isMatrix = q.type==="matrix";
+  const isHotspot = q.type==="hotspot";
   const isCaseStudy = state.quizType==="casestudy";
   const scenarioPanel = isCaseStudy ? `
     <div class="case-scenario-panel">
@@ -3303,6 +3345,7 @@ function renderQuestion(){
     ${isSata ? `<div class="sata-note">SELECT ALL THAT APPLY</div>`:""}
     ${isCloze ? `<div class="cloze-note">SELECT AN OPTION FOR EACH BLANK</div>` : ""}
     ${isMatrix ? `<div class="cloze-note">${q.matrixType==="choice" ? "SELECT ONE OPTION PER ROW" : "SELECT ALL THAT APPLY IN EACH ROW"}</div>` : ""}
+    ${isHotspot ? `<div class="cloze-note">${q.hotspotType==="single" ? "HIGHLIGHT THE ONE FINDING THAT APPLIES" : "HIGHLIGHT ALL FINDINGS THAT APPLY"}</div>` : ""}
     ${isCalc ? `
       <div class="calc-input-wrap">
         <label for="calcAnswerInput" class="mono" style="font-size:11px;color:var(--ink-soft);text-transform:uppercase;letter-spacing:.05em;">Your Answer</label>
@@ -3318,6 +3361,9 @@ function renderQuestion(){
     ` : isMatrix ? `
       <div class="matrix-wrap" id="matrixWrap">${renderMatrixContent(q)}</div>
       <div class="submit-row"><button class="btn" id="matrixSubmitBtn" onclick="submitMatrixAnswer()">Check Answer</button></div>
+    ` : isHotspot ? `
+      <div class="hotspot-wrap" id="hotspotWrap">${renderHotspotContent(q)}</div>
+      <div class="submit-row"><button class="btn" id="hotspotSubmitBtn" onclick="submitHotspotAnswer()">Check Answer</button></div>
     ` : `
       <div class="options" id="optionsWrap">
         ${q.options.map(o=>`
@@ -3611,6 +3657,92 @@ function submitMatrixAnswer(){
   }
 }
 
+/* Hot Spot (NCSBN "Enhanced Hot Spot") questions present a passage of
+   clinical text — a nurses' note, lab report, medication record, etc. —
+   with specific candidate phrases marked clickable. Both correct and
+   plausible-but-wrong phrases are mixed into the clickable set, the same
+   way any other item type mixes in distractors; the candidate highlights
+   their answer by clicking directly in the passage instead of choosing
+   from a separate option list. Two variants, mirroring the same two
+   scoring rules already used elsewhere in the app:
+   - 'single': exactly one clickable phrase may be selected at a time
+     (radio-like), scored 0/1 — the same no-penalty rule as calc/single MC.
+   - 'multiple': one or more phrases may be selected (checkbox-like),
+     scored with the +/- rule — the same mechanic SATA and matrix
+     'response' rows already use, applied to phrase selection instead. */
+function renderHotspotContent(q){
+  state.hotspotSelections = new Set();
+  const labelHtml = q.hotspotPassageLabel ? `<div class="hotspot-label">${q.hotspotPassageLabel}</div>` : "";
+  const spansHtml = q.hotspotSegments.map(seg=>{
+    if(!seg.clickable) return `<span>${seg.text}</span>`;
+    return `<span class="hotspot-span" data-seg-id="${seg.id}" onclick="toggleHotspotSegment('${seg.id}')">${seg.text}</span>`;
+  }).join("");
+  return `${labelHtml}<div class="hotspot-passage">${spansHtml}</div>`;
+}
+function toggleHotspotSegment(segId){
+  if(state.locked) return;
+  const q = state.questions[state.index];
+  const isSingle = q.hotspotType==="single";
+  const el = document.querySelector(`.hotspot-span[data-seg-id="${segId}"]`);
+  if(isSingle && !state.hotspotSelections.has(segId)){
+    state.hotspotSelections.clear();
+    document.querySelectorAll(".hotspot-span.hotspot-selected").forEach(s=>s.classList.remove("hotspot-selected"));
+  }
+  if(state.hotspotSelections.has(segId)){
+    state.hotspotSelections.delete(segId);
+    if(el) el.classList.remove("hotspot-selected");
+  } else {
+    state.hotspotSelections.add(segId);
+    if(el) el.classList.add("hotspot-selected");
+  }
+}
+function submitHotspotAnswer(){
+  if(state.locked) return;
+  const q = state.questions[state.index];
+  if(state.hotspotSelections.size===0) return;
+  state.locked = true;
+  const isSingle = q.hotspotType==="single";
+  const correctSet = new Set(q.correct);
+  let totalPoints, totalMax, status, weightedPoints;
+  if(isSingle){
+    const selectedId = Array.from(state.hotspotSelections)[0];
+    const isCorrect = correctSet.has(selectedId);
+    totalPoints = isCorrect ? 1 : 0; totalMax = 1;
+    weightedPoints = isCorrect ? 2 : 0;
+    status = isCorrect ? "correct" : "incorrect";
+  } else {
+    let correctSelected=0, incorrectSelected=0;
+    state.hotspotSelections.forEach(id=>{ if(correctSet.has(id)) correctSelected++; else incorrectSelected++; });
+    totalMax = correctSet.size;
+    totalPoints = Math.max(0, correctSelected - incorrectSelected);
+    const fraction = totalMax>0 ? totalPoints/totalMax : 0;
+    weightedPoints = Math.round(fraction * 2 * 10) / 10;
+    status = fraction===1 ? "correct" : fraction===0 ? "incorrect" : "partial";
+  }
+  const selectedForRecord = Array.from(state.hotspotSelections);
+  recordAnswer(q, status, selectedForRecord, weightedPoints);
+  const hotspotDetail = { totalPoints, totalMax, weightedPoints, isSingle, selected: selectedForRecord, correct: Array.from(correctSet) };
+  state.answers[state.answers.length-1].hotspotDetail = hotspotDetail;
+  document.querySelectorAll(".hotspot-span").forEach(span=>{
+    span.classList.add("hotspot-disabled");
+    span.onclick = null;
+    const segId = span.dataset.segId;
+    const isCorrectSeg = correctSet.has(segId);
+    const wasSelected = selectedForRecord.includes(segId);
+    span.classList.remove("hotspot-selected");
+    if(isCorrectSeg && wasSelected) span.classList.add("hotspot-correct");
+    else if(isCorrectSeg && !wasSelected) span.classList.add("hotspot-missed");
+    else if(!isCorrectSeg && wasSelected) span.classList.add("hotspot-incorrect");
+  });
+  const btn = document.getElementById("hotspotSubmitBtn");
+  if(btn) btn.disabled = true;
+  if(state.feedbackMode==="immediate"){
+    renderFeedback(q, status, null, null, null, hotspotDetail);
+  } else {
+    renderDeferredFeedback();
+  }
+}
+
 function skipQuestion(){
   if(state.locked) return;
   state.locked = true;
@@ -3682,7 +3814,7 @@ function recordAnswer(q, status, selected, points){
   renderSessionScore();
 }
 
-function renderFeedback(q, status, sataDetail, clozeDetail, matrixDetail){
+function renderFeedback(q, status, sataDetail, clozeDetail, matrixDetail, hotspotDetail){
   const isPartial = status==="partial";
   const isGood = status==="correct";
   const bannerClass = isGood ? "good" : isPartial ? "partial" : "bad";
@@ -3703,6 +3835,16 @@ function renderFeedback(q, status, sataDetail, clozeDetail, matrixDetail){
     if(isGood){ stamp = `✓ CORRECT — Full Credit (+${pts})`; subline = "Every row was answered correctly."; }
     else if(isPartial){ stamp = `◐ PARTIAL CREDIT (+${pts})`; subline = `${matrixDetail.totalPoints} of ${matrixDetail.totalMax} row-point(s) earned — each row is scored independently (${ruleNote}), then summed for the item total.`; }
     else { stamp = `✗ NO CREDIT (0 pts)`; subline = "None of the rows earned points — each row is scored independently, so this nets to 0."; }
+  } else if(hotspotDetail){
+    const pts = hotspotDetail.weightedPoints;
+    if(hotspotDetail.isSingle){
+      if(isGood){ stamp = `✓ CORRECT (+${pts})`; subline = "You highlighted the right finding."; }
+      else { stamp = `✗ INCORRECT (0 pts)`; subline = "That's not the finding being tested here — single-highlight items score 0/1, with no partial credit."; }
+    } else {
+      if(isGood){ stamp = `✓ CORRECT — Full Credit (+${pts})`; subline = "You highlighted every correct finding and nothing else."; }
+      else if(isPartial){ stamp = `◐ PARTIAL CREDIT (+${pts})`; subline = `${hotspotDetail.totalPoints} of ${hotspotDetail.totalMax} point(s) earned — Enhanced Hot Spot multi-select items use +/- scoring: +1 per correct highlight, −1 per incorrect one, floored at 0.`; }
+      else { stamp = `✗ NO CREDIT (0 pts)`; subline = "The incorrect highlights outweighed the correct ones (or none were right) — under +/- scoring this nets to 0, not a further penalty."; }
+    }
   } else {
     stamp = isGood ? "✓ CORRECT (+2)" : "✗ INCORRECT (0 pts)";
     subline = isGood ? "Nice — that's the concept locked in." : "Let's break down what was missed.";
@@ -3897,6 +4039,7 @@ function showResults(){
       `<div class="why-wrong-item"><b>${k}</b>${txt}</div>`).join("");
     const unitSuffix = (q.type==="calc" && q.unit) ? " "+q.unit : "";
     const isMatrixQ = q.type==="matrix";
+    const isHotspotQ = q.type==="hotspot";
     const yourAnswer = (a && a.selected!=null) ? (Array.isArray(a.selected) ? a.selected.join(", ") : a.selected+unitSuffix) : "— (skipped)";
     const correctAnswer = Array.isArray(q.correct) ? q.correct.join(", ") : q.correct+unitSuffix;
     const sataNote = (a && a.sataDetail) ? `<p style="font-size:11.5px;color:var(--gold);margin:0 0 10px;" class="mono">+/- scoring: ${a.sataDetail.correctSelected} correct${a.sataDetail.incorrectSelected?` − ${a.sataDetail.incorrectSelected} incorrect`:""} → ${a.sataDetail.weightedPoints} of 2 pts</p>` : "";
@@ -3911,12 +4054,23 @@ function showResults(){
         }).join("")}
         <p style="font-size:11.5px;color:var(--gold);margin:6px 0 0;" class="mono">${a.matrixDetail.isChoice?"0/1":"+/-"} per row: ${a.matrixDetail.totalPoints} of ${a.matrixDetail.totalMax} row-point(s) → ${a.matrixDetail.weightedPoints} of 2 pts</p>
       </div>` : "";
+    const hotspotNote = (a && a.hotspotDetail) ? (()=>{
+      const segById = {}; (q.hotspotSegments||[]).forEach(s=>{ segById[s.id]=s.text; });
+      const yourSel = a.hotspotDetail.selected.map(id=>segById[id]||id).join("; ") || "(none)";
+      const correctSel = a.hotspotDetail.correct.map(id=>segById[id]||id).join("; ");
+      const ruleLabel = a.hotspotDetail.isSingle ? "0/1" : "+/-";
+      return `
+        <p style="font-size:11.5px;color:var(--ink-soft);margin:2px 0;" class="mono">You highlighted: "${yourSel}"</p>
+        <p style="font-size:11.5px;color:var(--ink-soft);margin:2px 0 6px;" class="mono">Correct: "${correctSel}"</p>
+        <p style="font-size:11.5px;color:var(--gold);margin:0 0 10px;" class="mono">${ruleLabel} scoring: ${a.hotspotDetail.totalPoints} of ${a.hotspotDetail.totalMax} point(s) → ${a.hotspotDetail.weightedPoints} of 2 pts</p>
+      `;
+    })() : "";
     return `
     <details class="missed-item">
       <summary><span>${statusIcon[status]} ${q.subtopic} — ${q.explain.concept}</span><span class="arrow">›</span></summary>
       <p class="stem" style="font-size:14px;">${q.stem}</p>
-      ${isMatrixQ ? "" : `<p style="font-size:12.5px;color:var(--ink-soft);margin:0 0 10px;" class="mono">Your answer: ${yourAnswer} &nbsp;·&nbsp; Correct: ${correctAnswer}</p>`}
-      ${sataNote}${clozeNote}${matrixNote}
+      ${(isMatrixQ || isHotspotQ) ? "" : `<p style="font-size:12.5px;color:var(--ink-soft);margin:0 0 10px;" class="mono">Your answer: ${yourAnswer} &nbsp;·&nbsp; Correct: ${correctAnswer}</p>`}
+      ${sataNote}${clozeNote}${matrixNote}${hotspotNote}
       <ul class="bullets">${q.explain.why.map(w=>`<li>${w}</li>`).join("")}</ul>
       ${wrongList ? `<div class="explain-block">${wrongList}</div>` : ""}
       <div class="quickcheck"><span class="lightning">⚡</span><span>${q.explain.quick}</span></div>
@@ -3932,8 +4086,9 @@ function showResults(){
     : state.quizType==="calcpractice" ? `startCalcPractice()`
     : state.quizType==="clozepractice" ? `startClozePractice()`
     : state.quizType==="matrixpractice" ? `startMatrixPractice()`
+    : state.quizType==="hotspotpractice" ? `startHotspotPractice()`
     : `openCustomTestModal()`;
-  const retakeLabel = (state.quizType==="full" || state.quizType==="hard" || state.quizType==="freemock" || state.quizType==="adaptive" || state.quizType==="casestudy" || state.quizType==="calcpractice" || state.quizType==="clozepractice" || state.quizType==="matrixpractice") ? "Retake" : "Create another test";
+  const retakeLabel = (state.quizType==="full" || state.quizType==="hard" || state.quizType==="freemock" || state.quizType==="adaptive" || state.quizType==="casestudy" || state.quizType==="calcpractice" || state.quizType==="clozepractice" || state.quizType==="matrixpractice" || state.quizType==="hotspotpractice") ? "Retake" : "Create another test";
   const answeredCount = correct + partial + incorrect;
   const answeredTimeSum = state.answers
     .filter(a=>(a.status==="correct" || a.status==="partial" || a.status==="incorrect") && typeof a.timeSpentSeconds==="number")
