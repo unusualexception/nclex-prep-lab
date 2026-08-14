@@ -2655,6 +2655,53 @@ function buildCaseStudyBlocks(caseNumbers){
   }).filter(block=>block.length>0);
 }
 
+/* The category-weighted helper above (pickCategoryWeightedSplit) computes
+   ngn/traditional totals globally, then re-splits each by category
+   independently. That's fine when there's no case-study block involved,
+   but once case studies enter the mix, their items belong to whatever
+   category the case itself is tagged with -- so a category that already
+   got a chunk of its fair share from an embedded case study would then
+   ALSO get its full, un-adjusted share from this standalone selection on
+   top, overshooting its target weight. This is most visible with few case
+   studies (a 50-question test with just 1 case study puts that entire
+   6-item block on ONE category), but the same skew can happen with more
+   case studies too if several happen to land in the same category.
+   This version computes each category's fair total against the FULL test
+   length first, subtracts whatever that category already received from
+   csCountByCategory, and only fills the remainder -- keeping every
+   category on target regardless of which categories the case studies
+   happened to draw from. Still keeps the ~90/10 traditional/NGN-extended
+   split within each category's remaining budget, and still guarantees a
+   leading SATA per category when requested (for Free Mock Test's
+   showcase-the-richest-format touch) and available. */
+function pickStandaloneWeightedSplit(targetTotal, csCountByCategory, seed, guaranteeSataPerCategory){
+  let selected = [];
+  CATEGORIES.forEach((c,ci)=>{
+    const fairTotal = Math.round(targetTotal * c.weight/100);
+    const remaining = Math.max(0, fairTotal - (csCountByCategory[c.key]||0));
+    if(remaining<=0) return;
+    const catNgnTarget = Math.round(remaining * NGN_EXTENDED_SHARE);
+    const catTraditionalTarget = remaining - catNgnTarget;
+
+    const ngnPool = seededShuffle(QUESTIONS.filter(q=>q.category===c.key && isNgnExtendedType(q)), seed + ci*101 + 13);
+    selected.push(...ngnPool.slice(0, Math.min(catNgnTarget, ngnPool.length)));
+
+    const tradAll = QUESTIONS.filter(q=>q.category===c.key && !isNgnExtendedType(q));
+    if(guaranteeSataPerCategory){
+      const sataPool = seededShuffle(tradAll.filter(q=>q.type==="sata"), seed + ci*101 + 3);
+      const otherPool = seededShuffle(tradAll.filter(q=>q.type!=="sata"), seed + ci*101 + 7);
+      const leadSata = sataPool.slice(0, Math.min(1, catTraditionalTarget));
+      const remainingNeeded = catTraditionalTarget - leadSata.length;
+      const restPool = seededShuffle([...otherPool, ...sataPool.slice(1)], seed + ci*101 + 11);
+      selected.push(...leadSata, ...restPool.slice(0, Math.max(0,remainingNeeded)));
+    } else {
+      const tradPool = seededShuffle(tradAll, seed + ci*101 + 17);
+      selected.push(...tradPool.slice(0, Math.min(catTraditionalTarget, tradPool.length)));
+    }
+  });
+  return selected;
+}
+
 function buildFullTest(testNumber){
   const targetTotal = Math.min(105, QUESTIONS.length + 18); // realistic mid-range length; falls back gracefully if the bank is smaller
   const seed = testNumber*7919 + 13;
@@ -2666,22 +2713,20 @@ function buildFullTest(testNumber){
   const caseNumbers = CASE_STUDIES.length ? seededShuffle(CASE_STUDIES.map(c=>c.case_number), seed+3001).slice(0,3) : [];
   const csBlocks = buildCaseStudyBlocks(caseNumbers);
   const csTotal = csBlocks.reduce((n,b)=>n+b.length,0);
+  const csCountByCategory = {};
+  csBlocks.flat().forEach(q => { csCountByCategory[q.category] = (csCountByCategory[q.category]||0)+1; });
 
   const standaloneTotal = Math.max(0, targetTotal - csTotal);
-  const ngnTarget = Math.round(targetTotal * NGN_EXTENDED_SHARE);
-  const traditionalTarget = Math.max(0, standaloneTotal - ngnTarget);
+  let standaloneSelected = pickStandaloneWeightedSplit(targetTotal, csCountByCategory, seed+101, false);
 
-  const ngnSelected = pickCategoryWeightedSplit(QUESTIONS.filter(isNgnExtendedType), ngnTarget, seed+101);
-  const traditionalSelected = pickCategoryWeightedSplit(QUESTIONS.filter(q=>!isNgnExtendedType(q)), traditionalTarget, seed+202);
-
-  // Top up from whichever standalone bucket has room if the other came up
-  // short (e.g. a category with little NGN-extended content yet).
-  let standaloneSelected = [...ngnSelected, ...traditionalSelected];
+  // Top up from whatever's left if any category came up short (e.g. a
+  // category with little NGN-extended content yet).
   if(standaloneSelected.length < standaloneTotal){
     const usedIds = new Set([...standaloneSelected.map(q=>q.id), ...csBlocks.flat().map(q=>q.id)]);
     const leftover = seededShuffle(QUESTIONS.filter(q=>!usedIds.has(q.id)), seed+888);
     standaloneSelected.push(...leftover.slice(0, standaloneTotal-standaloneSelected.length));
   }
+  standaloneSelected = standaloneSelected.slice(0, standaloneTotal);
 
   // Shuffle case-study BLOCKS in among standalone items at the unit level,
   // keeping each case study's 6 items contiguous and in order -- a real
@@ -2724,51 +2769,55 @@ function buildHardTest(testNumber){
   return seededShuffle(selected, seed+555);
 }
 
-/* The Free Mock Test targets the NCLEX-RN's published MINIMUM exam length
-   (85 items) as closely as this bank allows: 18 fixed case-study items
-   (3 sets x 6, exactly matching every real exam) + 67 standalone items
-   (52 scored + 15 unscored-but-identical-format in the real exam, which
-   collapse to one undifferentiated category-weighted pool here since a
-   study tool has no use for the scored/unscored distinction) split
-   ~90% traditional / ~10% NGN-extended, same as Full Length Tests.
-   Unlike the 30 numbered Full Length Tests, it's the same questions every
-   time rather than a fresh random draw, since this is meant to be a
-   consistent, dependable showcase of the bank's quality rather than one
-   of many interchangeable practice runs. Within the traditional bucket it
-   still deliberately leads with a SATA question per category when one's
-   available — SATA items carry a full per-option rationale breakdown, the
-   richest explanation format in the bank, and a free account's one
-   guaranteed test is exactly where that should be front and center. */
+/* The Free Mock Test is a shorter, approachable 50-question sample —
+   long enough to feel like a real practice session without demanding an
+   85-150 item sitting, while still keeping the real exam's DNA: one full
+   unfolding case study (6 items — close to the real exam's 12-21%
+   case-study share at this length, scaled down from the 3-case-study
+   block Full Length Tests use) + 44 standalone items in the same ~90%
+   traditional / ~10% NGN-extended split, category-weighted the same way
+   as everywhere else. Unlike the 30 numbered Full Length Tests, it's the
+   same questions every time rather than a fresh random draw, since this
+   is meant to be a consistent, dependable showcase of the bank's quality
+   rather than one of many interchangeable practice runs. Within the
+   traditional bucket it still deliberately leads with a SATA question per
+   category when one's available — SATA items carry a full per-option
+   rationale breakdown, the richest explanation format in the bank, and a
+   free account's one guaranteed test is exactly where that should be
+   front and center. */
+/* The Free Mock Test is a shorter, approachable 50-question sample —
+   long enough to feel like a real practice session without demanding an
+   85-150 item sitting, while still keeping the real exam's DNA: one full
+   unfolding case study (6 items — close to the real exam's 12-21%
+   case-study share at this length, scaled down from the 3-case-study
+   block Full Length Tests use) + 44 standalone items in the same ~90%
+   traditional / ~10% NGN-extended split, category-weighted the same way
+   as everywhere else. Because a single case study puts its whole 6-item
+   weight on just one category, pickStandaloneWeightedSplit() accounts for
+   that when filling the rest — otherwise that one category would end up
+   double-counted (its case-study items plus a full, un-adjusted share of
+   the standalone pool on top). Unlike the 30 numbered Full Length Tests,
+   it's the same questions every time rather than a fresh random draw,
+   since this is meant to be a consistent, dependable showcase of the
+   bank's quality rather than one of many interchangeable practice runs.
+   Within the traditional bucket it still deliberately leads with a SATA
+   question per category when one's available — SATA items carry a full
+   per-option rationale breakdown, the richest explanation format in the
+   bank, and a free account's one guaranteed test is exactly where that
+   should be front and center. */
 function buildFreeMockTest(){
-  const targetTotal = Math.min(85, QUESTIONS.length + 18);
+  const targetTotal = Math.min(50, QUESTIONS.length + 6);
   const seed = 8675309;
 
-  const caseNumbers = CASE_STUDIES.length ? seededShuffle(CASE_STUDIES.map(c=>c.case_number), seed+3001).slice(0,3) : [];
+  const caseNumbers = CASE_STUDIES.length ? seededShuffle(CASE_STUDIES.map(c=>c.case_number), seed+3001).slice(0,1) : [];
   const csBlocks = buildCaseStudyBlocks(caseNumbers);
   const csTotal = csBlocks.reduce((n,b)=>n+b.length,0);
+  const csCountByCategory = {};
+  csBlocks.flat().forEach(q => { csCountByCategory[q.category] = (csCountByCategory[q.category]||0)+1; });
 
   const standaloneTotal = Math.max(0, targetTotal - csTotal);
-  const ngnTarget = Math.round(targetTotal * NGN_EXTENDED_SHARE);
-  const traditionalTarget = Math.max(0, standaloneTotal - ngnTarget);
+  let standaloneSelected = pickStandaloneWeightedSplit(targetTotal, csCountByCategory, seed+101, true);
 
-  const ngnSelected = pickCategoryWeightedSplit(QUESTIONS.filter(isNgnExtendedType), ngnTarget, seed+101);
-
-  // Traditional bucket, built per-category so each category can lead with
-  // a SATA question specifically, same flourish as before.
-  const traditionalPool = QUESTIONS.filter(q=>!isNgnExtendedType(q));
-  let traditionalSelected = [];
-  CATEGORIES.forEach((c,ci)=>{
-    const catAll = traditionalPool.filter(q=>q.category===c.key);
-    const target = Math.min(Math.round(traditionalTarget * c.weight/100), catAll.length);
-    const sataPool = seededShuffle(catAll.filter(q=>q.type==="sata"), seed + ci*101 + 3);
-    const otherPool = seededShuffle(catAll.filter(q=>q.type!=="sata"), seed + ci*101 + 7);
-    const leadSata = sataPool.slice(0, Math.min(1, target));
-    const remainingNeeded = target - leadSata.length;
-    const restPool = seededShuffle([...otherPool, ...sataPool.slice(1)], seed + ci*101 + 11);
-    traditionalSelected.push(...leadSata, ...restPool.slice(0, remainingNeeded));
-  });
-
-  let standaloneSelected = [...ngnSelected, ...traditionalSelected];
   if(standaloneSelected.length < standaloneTotal){
     const usedIds = new Set([...standaloneSelected.map(q=>q.id), ...csBlocks.flat().map(q=>q.id)]);
     const leftover = seededShuffle(QUESTIONS.filter(q=>!usedIds.has(q.id)), seed+888);
@@ -2796,7 +2845,7 @@ function buildFreeMockTest(){
    behind the difficulty values. As real usage accumulates in quiz_answers,
    difficulty_level could later be recalculated from actual pass rates per
    question, which would make this progressively closer to the real thing. */
-const ADAPTIVE_TEST_LENGTH = 75;
+const ADAPTIVE_TEST_LENGTH = 85; // matches the real NCLEX-RN's published minimum exam length
 
 function buildAdaptiveCategorySequence(length){
   const seed = Date.now() % 2147483647; // fresh sequence every attempt, not fixed like other tests
@@ -2857,7 +2906,7 @@ function renderRail(){
   const freeLabel = freeProg && freeProg.status==="done" ? `${freeProg.score}%` : "";
   const freeMockSection = `
     <div class="rail-title">Free Mock Test</div>
-    <div class="rail-note" style="border-top:none;">85 questions, matching the real minimum exam length — 3 full case studies (18 items) plus category-weighted standalone questions. Completely free to test your preparedness. Just sign in to start.</div>
+    <div class="rail-note" style="border-top:none;">50 questions — a full unfolding case study plus category-weighted standalone questions, giving a real feel of the exam without the full sitting. Completely free to test your preparedness. Just sign in to start.</div>
     <button class="rail-btn rail-btn-free ${state.quizKey==="freemock"?"active":""}" onclick="startFreeMockTest()">
       <span class="id mono" style="display:flex;flex-direction:column;line-height:1.35;">
         <span style="font-size:8px;opacity:.75;letter-spacing:.05em;display:inline-flex;align-items:center;gap:3px;">${STAR_ICON} FREE</span>
@@ -2920,7 +2969,7 @@ function renderRail(){
   const adaptiveLabel = adaptiveProg && adaptiveProg.status==="done" ? `${adaptiveProg.score}%` : "";
   const adaptiveSection = `
     <div class="rail-title" style="margin-top:16px;">Adaptive Practice</div>
-    <div class="rail-note" style="border-top:none;">75 questions that get harder or easier based on how you're doing — genuinely adaptive in mechanic, though not empirically calibrated like the real NCLEX (see the results page for details).</div>
+    <div class="rail-note" style="border-top:none;">85 questions, matching the real minimum exam length — gets harder or easier based on how you're doing, genuinely adaptive in mechanic though not empirically calibrated like the real NCLEX (see the results page for details).</div>
     <button class="rail-btn rail-btn-adaptive ${state.quizKey==="adaptive"?"active":""} ${adaptiveLocked?'rail-btn-locked':''}" onclick="startAdaptiveTest()">
       <span class="id mono" style="display:inline-flex;align-items:center;gap:4px;">⚡ ADAPTIVE${adaptiveLockBadge}</span>
       <span style="display:flex;align-items:center;gap:6px;">
