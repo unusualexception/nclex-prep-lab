@@ -310,6 +310,12 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
   .case-scenario-stage:last-child{margin-bottom:0;}
   .case-scenario-label{font-family:'IBM Plex Mono',monospace;font-size:10.5px;font-weight:700;color:var(--ink-soft);text-transform:uppercase;letter-spacing:.03em;margin-bottom:3px;}
   .case-scenario-content{font-size:13.5px;line-height:1.6;color:var(--ink);}
+  .trend-panel{background:var(--paper);border:1px solid var(--line);border-left:4px solid var(--gold);border-radius:9px;padding:14px 16px;margin-bottom:16px;}
+  .trend-panel-header{font-family:'IBM Plex Mono',monospace;font-size:11px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:var(--gold);margin-bottom:10px;}
+  .trend-stage{margin-bottom:10px;padding-bottom:10px;border-bottom:1px dashed var(--line-soft);}
+  .trend-stage:last-child{margin-bottom:0;padding-bottom:0;border-bottom:none;}
+  .trend-stage-label{font-family:'IBM Plex Mono',monospace;font-size:10.5px;font-weight:700;color:var(--ink-soft);text-transform:uppercase;letter-spacing:.03em;margin-bottom:3px;}
+  .trend-stage-content{font-size:13.5px;line-height:1.6;color:var(--ink);}
   .stem{font-size:17px;line-height:1.55;margin:0 0 18px;font-weight:500;}
   .sata-note{font-size:12px;color:var(--blue);font-weight:600;margin:-10px 0 14px;font-family:'IBM Plex Mono',monospace;}
   .calc-input-wrap{margin-bottom:16px;}
@@ -2429,7 +2435,8 @@ async function loadQuestionBank(){
           matrixType: r.matrix_type, matrixColumns: r.matrix_columns, matrixRows: r.matrix_rows,
           hotspotType: r.hotspot_type, hotspotPassageLabel: r.hotspot_passage_label, hotspotSegments: r.hotspot_segments,
           orderedResponseItems: r.ordered_response_items,
-          bowtieActions: r.bowtie_actions, bowtieConditions: r.bowtie_conditions, bowtieParameters: r.bowtie_parameters
+          bowtieActions: r.bowtie_actions, bowtieConditions: r.bowtie_conditions, bowtieParameters: r.bowtie_parameters,
+          trendStages: r.trend_stages
         }));
       }
     }catch(e){
@@ -2789,6 +2796,18 @@ function renderRail(){
     </button>
   ` : "";
 
+  const trendQuestionCount = QUESTIONS.filter(q=>q.trendStages && q.trendStages.length).length;
+  const trendSection = trendQuestionCount ? `
+    <div class="rail-title" style="margin-top:16px;">Trend Practice</div>
+    <div class="rail-note" style="border-top:none;">Review data points across time — vitals, labs, or notes — and answer based on the pattern, not a single reading. ${trendQuestionCount} questions so far, growing toward a full set.</div>
+    <button class="rail-btn ${state.quizKey==="trendpractice"?"active":""}" onclick="startTrendPractice()">
+      <span class="id mono">⤳ TREND PRACTICE</span>
+      <span style="display:flex;align-items:center;gap:6px;">
+        <span class="mono" style="font-size:10.5px;opacity:.8;">${trendQuestionCount} Qs</span>
+      </span>
+    </button>
+  ` : "";
+
   const caseAccess = caseStudyAccessState();
   const caseLocked = caseAccess !== "open";
   const caseLockBadge = caseLocked ? LOCK_ICON : "";
@@ -2821,7 +2840,7 @@ function renderRail(){
   ` + regularBtns + `
     <div class="rail-title" style="margin-top:16px;">Hard Tests</div>
     <div class="rail-note" style="border-top:none;">50 questions per test, category-weighted.</div>
-  ` + hardBtns + adaptiveSection + calcSection + clozeSection + matrixSection + hotspotSection + orderedSection + bowtieSection + caseSection;
+  ` + hardBtns + adaptiveSection + calcSection + clozeSection + matrixSection + hotspotSection + orderedSection + bowtieSection + trendSection + caseSection;
 }
 function renderSessionScore(){
   document.getElementById("sessionScore").textContent = `${state.sessionCorrect} / ${state.sessionTotal} correct this session`;
@@ -3082,6 +3101,14 @@ function startBowtiePractice(){
   document.getElementById("quizOptionsTitle").textContent = "Bow-tie Practice";
   document.getElementById("quizOptionsOverlay").style.display = "flex";
 }
+function startTrendPractice(){
+  if(!authState.user){ document.getElementById("authOverlay").style.display = "flex"; return; }
+  const trendQuestions = QUESTIONS.filter(q=>q.trendStages && q.trendStages.length);
+  if(trendQuestions.length===0){ alert("No trend questions are available right now — please try again shortly."); return; }
+  pendingStart = {kind:"trendpractice", key:null};
+  document.getElementById("quizOptionsTitle").textContent = "Trend Practice";
+  document.getElementById("quizOptionsOverlay").style.display = "flex";
+}
 function closeQuizOptionsModal(){
   document.getElementById("quizOptionsOverlay").style.display = "none";
   pendingStart = null;
@@ -3101,6 +3128,7 @@ function confirmQuizMode(mode){
   else if(p.kind==="hotspotpractice") actuallyStartHotspotPractice();
   else if(p.kind==="orderedpractice") actuallyStartOrderedPractice();
   else if(p.kind==="bowtiepractice") actuallyStartBowtiePractice();
+  else if(p.kind==="trendpractice") actuallyStartTrendPractice();
   else actuallyStartFullTest(p.key);
 }
 function actuallyStartCalcPractice(){
@@ -3152,6 +3180,15 @@ function actuallyStartOrderedPractice(){
 function actuallyStartBowtiePractice(){
   const qs = shuffle(QUESTIONS.filter(q=>q.type==="bowtie"));
   state.view="quiz"; state.quizKey="bowtiepractice"; state.quizType="bowtiepractice"; state.quizTitle="Bow-tie Practice";
+  state.testNumberForRetake = null;
+  state.questions=qs; state.index=0; state.answers=[]; state.locked=false; state.selectedSata=new Set();
+  renderRail();
+  startQuizTimer();
+  renderQuestion();
+}
+function actuallyStartTrendPractice(){
+  const qs = shuffle(QUESTIONS.filter(q=>q.trendStages && q.trendStages.length));
+  state.view="quiz"; state.quizKey="trendpractice"; state.quizType="trendpractice"; state.quizTitle="Trend Practice";
   state.testNumberForRetake = null;
   state.questions=qs; state.index=0; state.answers=[]; state.locked=false; state.selectedSata=new Set();
   renderRail();
@@ -3412,6 +3449,7 @@ function renderQuestion(){
   const isOrdered = q.type==="ordered_response";
   const isBowtie = q.type==="bowtie";
   const isCaseStudy = state.quizType==="casestudy";
+  const isTrend = !!(q.trendStages && q.trendStages.length);
   const scenarioPanel = isCaseStudy ? `
     <div class="case-scenario-panel">
       <div class="case-scenario-header">${state.caseStudySetting} — ${state.caseStudyTitle}</div>
@@ -3419,6 +3457,17 @@ function renderQuestion(){
         <div class="case-scenario-stage">
           <div class="case-scenario-label">${s.label}</div>
           <div class="case-scenario-content">${s.content}</div>
+        </div>
+      `).join("")}
+    </div>
+  ` : "";
+  const trendPanel = isTrend ? `
+    <div class="trend-panel">
+      <div class="trend-panel-header">Trend — review the data over time</div>
+      ${q.trendStages.map(s=>`
+        <div class="trend-stage">
+          <div class="trend-stage-label">${s.label}</div>
+          <div class="trend-stage-content">${s.content}</div>
         </div>
       `).join("")}
     </div>
@@ -3433,6 +3482,7 @@ function renderQuestion(){
     </div>
     <div class="progress-track"><div class="progress-fill" style="width:${pct}%"></div></div>
     ${scenarioPanel}
+    ${trendPanel}
     <span class="cat-tag" style="background:${c.color}">${c.label} · ${q.subtopic}</span>
     <p class="stem">${q.stem}</p>
     ${isSata ? `<div class="sata-note">SELECT ALL THAT APPLY</div>`:""}
@@ -4364,6 +4414,17 @@ function showResults(){
     const isHotspotQ = q.type==="hotspot";
     const isOrderedQ = q.type==="ordered_response";
     const isBowtieQ = q.type==="bowtie";
+    const trendReviewPanel = (q.trendStages && q.trendStages.length) ? `
+      <div class="trend-panel" style="margin:8px 0 12px;">
+        <div class="trend-panel-header">Trend — data over time</div>
+        ${q.trendStages.map(s=>`
+          <div class="trend-stage">
+            <div class="trend-stage-label">${s.label}</div>
+            <div class="trend-stage-content">${s.content}</div>
+          </div>
+        `).join("")}
+      </div>
+    ` : "";
     const yourAnswer = (a && a.selected!=null) ? (Array.isArray(a.selected) ? a.selected.join(", ") : a.selected+unitSuffix) : "— (skipped)";
     const correctAnswer = Array.isArray(q.correct) ? q.correct.join(", ") : q.correct+unitSuffix;
     const sataNote = (a && a.sataDetail) ? `<p style="font-size:11.5px;color:var(--gold);margin:0 0 10px;" class="mono">+/- scoring: ${a.sataDetail.correctSelected} correct${a.sataDetail.incorrectSelected?` − ${a.sataDetail.incorrectSelected} incorrect`:""} → ${a.sataDetail.weightedPoints} of 2 pts</p>` : "";
@@ -4425,6 +4486,7 @@ function showResults(){
     <details class="missed-item">
       <summary><span>${statusIcon[status]} ${q.subtopic} — ${q.explain.concept}</span><span class="arrow">›</span></summary>
       <p class="stem" style="font-size:14px;">${q.stem}</p>
+      ${trendReviewPanel}
       ${(isMatrixQ || isHotspotQ || isOrderedQ || isBowtieQ) ? "" : `<p style="font-size:12.5px;color:var(--ink-soft);margin:0 0 10px;" class="mono">Your answer: ${yourAnswer} &nbsp;·&nbsp; Correct: ${correctAnswer}</p>`}
       ${sataNote}${clozeNote}${matrixNote}${hotspotNote}${orderedNote}${bowtieNote}
       <ul class="bullets">${q.explain.why.map(w=>`<li>${w}</li>`).join("")}</ul>
@@ -4445,8 +4507,9 @@ function showResults(){
     : state.quizType==="hotspotpractice" ? `startHotspotPractice()`
     : state.quizType==="orderedpractice" ? `startOrderedPractice()`
     : state.quizType==="bowtiepractice" ? `startBowtiePractice()`
+    : state.quizType==="trendpractice" ? `startTrendPractice()`
     : `openCustomTestModal()`;
-  const retakeLabel = (state.quizType==="full" || state.quizType==="hard" || state.quizType==="freemock" || state.quizType==="adaptive" || state.quizType==="casestudy" || state.quizType==="calcpractice" || state.quizType==="clozepractice" || state.quizType==="matrixpractice" || state.quizType==="hotspotpractice" || state.quizType==="orderedpractice" || state.quizType==="bowtiepractice") ? "Retake" : "Create another test";
+  const retakeLabel = (state.quizType==="full" || state.quizType==="hard" || state.quizType==="freemock" || state.quizType==="adaptive" || state.quizType==="casestudy" || state.quizType==="calcpractice" || state.quizType==="clozepractice" || state.quizType==="matrixpractice" || state.quizType==="hotspotpractice" || state.quizType==="orderedpractice" || state.quizType==="bowtiepractice" || state.quizType==="trendpractice") ? "Retake" : "Create another test";
   const answeredCount = correct + partial + incorrect;
   const answeredTimeSum = state.answers
     .filter(a=>(a.status==="correct" || a.status==="partial" || a.status==="incorrect") && typeof a.timeSpentSeconds==="number")
