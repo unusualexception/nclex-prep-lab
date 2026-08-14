@@ -468,7 +468,7 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
     <div class="brand" id="brandHome" tabindex="0" role="button" aria-label="Go to dashboard">
       <span class="brand-mark">NCLEX</span><span class="brand-sub">PREP LAB</span>
     </div>
-    <button class="btn create-test-btn" onclick="openCustomTestModal()">✎ Create Your Own Test <span id="createTestLockBadge"></span></button>
+    <button class="btn create-test-btn" onclick="startFreeMockTest()">⭐ Free Mock Test<span id="freeMockTopBadge"></span></button>
     <div class="topbar-right">
       <button class="topbar-help-btn" onclick="openIssueModal()">Report Issue</button>
       <button class="topbar-help-btn" onclick="openContactModal()">Contact Us</button>
@@ -652,6 +652,21 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
           <option value="30">30 questions</option>
           <option value="40">40 questions</option>
           <option value="50">50 questions</option>
+        </select>
+      </div>
+      <div id="caseStudyCountWrap" style="display:none;margin:0 0 18px;">
+        <label for="caseStudyCountSelect" style="display:block;font-size:12.5px;font-weight:600;color:var(--ink-soft);margin-bottom:6px;">How many case studies this session?</label>
+        <select id="caseStudyCountSelect" style="width:100%;padding:9px 10px;border:1px solid var(--line);border-radius:8px;font-size:13.5px;font-family:inherit;background:var(--panel);color:var(--ink);">
+          <option value="1">1 case study (6 items)</option>
+          <option value="2">2 case studies (12 items)</option>
+          <option value="3" selected>3 case studies (18 items)</option>
+          <option value="4">4 case studies (24 items)</option>
+          <option value="5">5 case studies (30 items)</option>
+          <option value="6">6 case studies (36 items)</option>
+          <option value="7">7 case studies (42 items)</option>
+          <option value="8">8 case studies (48 items)</option>
+          <option value="9">9 case studies (54 items)</option>
+          <option value="10">10 case studies (60 items)</option>
         </select>
       </div>
       <div style="display:flex;flex-direction:column;gap:10px;">
@@ -2894,28 +2909,19 @@ function renderRail(){
     note.innerHTML = `<span style="color:var(--incorrect);font-weight:600;font-size:12px;">${authState.profileError}</span>`;
   }
 
-  const createTestLocked = !authState.user || !hasActiveSubscription();
-  const createTestBadgeEl = document.getElementById("createTestLockBadge");
-  if(createTestBadgeEl){
-    createTestBadgeEl.innerHTML = createTestLocked ? LOCK_ICON : "";
-    createTestBadgeEl.style.display = createTestLocked ? "inline-flex" : "none";
+  const freeMockTopBadgeEl = document.getElementById("freeMockTopBadge");
+  if(freeMockTopBadgeEl){
+    const freeProgTop = state.freeMockTestProgress;
+    freeMockTopBadgeEl.textContent = (freeProgTop && freeProgTop.status==="done") ? ` · ${freeProgTop.score}%` : "";
   }
 
-  const freeProg = state.freeMockTestProgress;
-  const freeStatusClass = freeProg ? (freeProg.status==="done" ? "done":"progress") : "";
-  const freeLabel = freeProg && freeProg.status==="done" ? `${freeProg.score}%` : "";
-  const freeMockSection = `
-    <div class="rail-title">Free Mock Test</div>
-    <div class="rail-note" style="border-top:none;">50 questions — a full unfolding case study plus category-weighted standalone questions, giving a real feel of the exam without the full sitting. Completely free to test your preparedness. Just sign in to start.</div>
-    <button class="rail-btn rail-btn-free ${state.quizKey==="freemock"?"active":""}" onclick="startFreeMockTest()">
-      <span class="id mono" style="display:flex;flex-direction:column;line-height:1.35;">
-        <span style="font-size:8px;opacity:.75;letter-spacing:.05em;display:inline-flex;align-items:center;gap:3px;">${STAR_ICON} FREE</span>
-        <span style="font-size:11.5px;">MOCK TEST</span>
-      </span>
-      <span style="display:flex;align-items:center;gap:6px;">
-        <span class="mono" style="font-size:10.5px;opacity:.8;">${freeLabel}</span>
-        <span class="status ${freeStatusClass}"></span>
-      </span>
+  const createTestLocked = !authState.user || !hasActiveSubscription();
+  const createTestSection = `
+    <div class="rail-title">Create Your Own Test</div>
+    <div class="rail-note" style="border-top:none;">Pick exactly how many questions from each category, weighted however you want. Good for drilling a weak area or building a mini-mock.</div>
+    <button class="rail-btn ${createTestLocked?'rail-btn-locked':''}" onclick="openCustomTestModal()">
+      <span class="id mono">✎ CREATE YOUR OWN TEST</span>
+      ${createTestLocked ? `<span style="display:inline-flex;align-items:center;">${LOCK_ICON}</span>` : ""}
     </button>
   `;
 
@@ -3045,30 +3051,15 @@ function renderRail(){
   const caseAccess = caseStudyAccessState();
   const caseLocked = caseAccess !== "open";
   const caseLockBadge = caseLocked ? LOCK_ICON : "";
-  const caseBtns = CASE_STUDIES.map(cs=>{
-    const key = "casestudy-"+cs.case_number;
-    const active = state.quizKey===key ? "active":"";
-    const prog = state.caseStudyProgress[cs.case_number];
-    const statusClass = prog ? (prog.status==="done" ? "done":"progress") : "";
-    const label = prog && prog.status==="done" ? `${prog.score}%` : "";
-    const clickHandler = caseLocked ? `openUpgradeModal()` : `startCaseStudy(${cs.case_number})`;
-    return `<button class="rail-btn rail-btn-case ${active} ${caseLocked?'rail-btn-locked':''}" onclick="${clickHandler}">
-      <span class="id mono" style="display:flex;flex-direction:column;line-height:1.35;">
-        <span style="font-size:8px;opacity:.65;letter-spacing:.05em;">CASE ${String(cs.case_number).padStart(2,"0")}</span>
-        <span style="font-size:11px;display:inline-flex;align-items:center;gap:4px;">${cs.title.length>22?cs.title.slice(0,20)+"…":cs.title}${caseLockBadge}</span>
-      </span>
-      <span style="display:flex;align-items:center;gap:6px;">
-        <span class="mono" style="font-size:10.5px;opacity:.8;">${label}</span>
-        <span class="status ${statusClass}"></span>
-      </span>
-    </button>`;
-  }).join("");
   const caseSection = CASE_STUDIES.length ? `
     <div class="rail-title" style="margin-top:16px;">Case Studies</div>
-    <div class="rail-note" style="border-top:none;">Next Gen NCLEX-style unfolding scenarios — one evolving patient picture, 6 linked questions following the Clinical Judgment Measurement Model.</div>
-  ` + caseBtns : "";
+    <div class="rail-note" style="border-top:none;">Next Gen NCLEX-style unfolding scenarios — one evolving patient picture, 6 linked questions following the Clinical Judgment Measurement Model. Pick how many case studies when you start.</div>
+    <button class="rail-btn ${state.quizKey==="casestudypractice"?"active":""} ${caseLocked?'rail-btn-locked':''}" onclick="${caseLocked ? 'openUpgradeModal()' : 'startCaseStudyPractice()'}">
+      <span class="id mono" style="display:inline-flex;align-items:center;gap:4px;">🩺 CASE STUDIES${caseLockBadge}</span>
+    </button>
+  ` : "";
 
-  list.innerHTML = freeMockSection + `
+  list.innerHTML = createTestSection + `
     <div class="rail-title" style="margin-top:16px;">Full-Length Tests</div>
     <div class="rail-note" style="border-top:none;">Matches real exam composition: 3 full case studies (18 items) plus category-weighted standalone questions — about 90% traditional, 10% extended NGN formats (matrix, cloze, hot spot, drag-and-drop, bow-tie, trend), per the NCSBN test plan. ~105 questions per test.</div>
   ` + regularBtns + `
@@ -3248,20 +3239,23 @@ let pendingStart = null;
 /* Practice modes for a single NGN item type (matrix, cloze, etc.) pull from
    a pool that's grown well past what anyone should sit through in one
    session — up to 480 questions for some types now. Full/hard/free-mock/
-   adaptive tests and case studies are already fixed-length by design and
-   don't need this. */
+   adaptive tests are already fixed-length by design and don't need this. */
 const PRACTICE_KINDS = new Set(["calcpractice","clozepractice","matrixpractice","hotspotpractice","orderedpractice","bowtiepractice","trendpractice"]);
-function openQuizOptionsModal(title, showCountSelector){
+/* modalMode: "none" | "questionCount" | "caseStudyCount" — which count
+   selector (if any) the shared modal shows for this quiz-start flow. */
+function openQuizOptionsModal(title, modalMode){
   document.getElementById("quizOptionsTitle").textContent = title;
-  const countWrap = document.getElementById("practiceCountWrap");
-  if(countWrap) countWrap.style.display = showCountSelector ? "block" : "none";
+  const qWrap = document.getElementById("practiceCountWrap");
+  const csWrap = document.getElementById("caseStudyCountWrap");
+  if(qWrap) qWrap.style.display = modalMode==="questionCount" ? "block" : "none";
+  if(csWrap) csWrap.style.display = modalMode==="caseStudyCount" ? "block" : "none";
   document.getElementById("quizOptionsOverlay").style.display = "flex";
 }
 function startFullTest(n){
   const access = fullTestAccessState(n);
   if(access!=="open"){ openUpgradeModal(); return; }
   pendingStart = {kind:"full", key:n};
-  openQuizOptionsModal("Full Length Test "+n, false);
+  openQuizOptionsModal("Full Length Test "+n, "none");
 }
 function startHardTest(n){
   const access = hardTestAccessState();
@@ -3272,76 +3266,87 @@ function startHardTest(n){
     return;
   }
   pendingStart = {kind:"hard", key:n};
-  openQuizOptionsModal("Hard Test "+n, false);
+  openQuizOptionsModal("Hard Test "+n, "none");
 }
 function startFreeMockTest(){
   const access = freeMockTestAccessState();
   if(access!=="open"){ openAuthModal("signin"); return; }
   pendingStart = {kind:"freemock", key:null};
-  openQuizOptionsModal("Free Mock Test", false);
+  openQuizOptionsModal("Free Mock Test", "none");
 }
 function startAdaptiveTest(){
   const access = adaptiveTestAccessState();
   if(access!=="open"){ openUpgradeModal(); return; }
   pendingStart = {kind:"adaptive", key:null};
-  openQuizOptionsModal("Adaptive Practice", false);
+  openQuizOptionsModal("Adaptive Practice", "none");
 }
+/* Retained for retake/internal use (a specific numbered case study can
+   still be started this way), but no longer surfaced directly in the rail
+   — with 50+ case studies now, one button per case made the panel far too
+   long. startCaseStudyPractice() below is the rail's actual entry point. */
 function startCaseStudy(caseNumber){
   const access = caseStudyAccessState();
   if(access!=="open"){ openUpgradeModal(); return; }
   const cs = CASE_STUDIES.find(c=>c.case_number===caseNumber);
   if(!cs){ alert("That case study isn't available right now — please try again shortly."); return; }
   pendingStart = {kind:"casestudy", key:caseNumber};
-  openQuizOptionsModal("Case Study: "+cs.title, false);
+  openQuizOptionsModal("Case Study: "+cs.title, "none");
+}
+function startCaseStudyPractice(){
+  const access = caseStudyAccessState();
+  if(access!=="open"){ openUpgradeModal(); return; }
+  if(CASE_STUDIES.length===0){ alert("No case studies are available right now — please try again shortly."); return; }
+  pendingStart = {kind:"casestudypractice", key:null};
+  openQuizOptionsModal("Case Studies", "caseStudyCount");
 }
 function startCalcPractice(){
   if(!authState.user){ document.getElementById("authOverlay").style.display = "flex"; return; }
   const calcQuestions = QUESTIONS.filter(q=>q.type==="calc");
   if(calcQuestions.length===0){ alert("No calculation questions are available right now — please try again shortly."); return; }
   pendingStart = {kind:"calcpractice", key:null};
-  openQuizOptionsModal("Calculation Practice", true);
+  openQuizOptionsModal("Calculation Practice", "questionCount");
 }
 function startClozePractice(){
   if(!authState.user){ document.getElementById("authOverlay").style.display = "flex"; return; }
   const clozeQuestions = QUESTIONS.filter(q=>q.type==="cloze");
   if(clozeQuestions.length===0){ alert("No cloze questions are available right now — please try again shortly."); return; }
   pendingStart = {kind:"clozepractice", key:null};
-  openQuizOptionsModal("Cloze Practice", true);
+  openQuizOptionsModal("Cloze Practice", "questionCount");
 }
 function startMatrixPractice(){
   if(!authState.user){ document.getElementById("authOverlay").style.display = "flex"; return; }
   const matrixQuestions = QUESTIONS.filter(q=>q.type==="matrix");
   if(matrixQuestions.length===0){ alert("No matrix/grid questions are available right now — please try again shortly."); return; }
   pendingStart = {kind:"matrixpractice", key:null};
-  openQuizOptionsModal("Matrix/Grid Practice", true);
+  openQuizOptionsModal("Matrix/Grid Practice", "questionCount");
 }
 function startHotspotPractice(){
   if(!authState.user){ document.getElementById("authOverlay").style.display = "flex"; return; }
   const hotspotQuestions = QUESTIONS.filter(q=>q.type==="hotspot");
   if(hotspotQuestions.length===0){ alert("No hot spot questions are available right now — please try again shortly."); return; }
   pendingStart = {kind:"hotspotpractice", key:null};
-  openQuizOptionsModal("Hot Spot Practice", true);
+  openQuizOptionsModal("Hot Spot Practice", "questionCount");
 }
 function startOrderedPractice(){
   if(!authState.user){ document.getElementById("authOverlay").style.display = "flex"; return; }
   const orderedQuestions = QUESTIONS.filter(q=>q.type==="ordered_response");
   if(orderedQuestions.length===0){ alert("No ordered response questions are available right now — please try again shortly."); return; }
   pendingStart = {kind:"orderedpractice", key:null};
-  openQuizOptionsModal("Ordered Response Practice", true);
+  openQuizOptionsModal("Ordered Response Practice", "questionCount");
 }
 function startBowtiePractice(){
   if(!authState.user){ document.getElementById("authOverlay").style.display = "flex"; return; }
   const bowtieQuestions = QUESTIONS.filter(q=>q.type==="bowtie");
   if(bowtieQuestions.length===0){ alert("No bow-tie questions are available right now — please try again shortly."); return; }
   pendingStart = {kind:"bowtiepractice", key:null};
-  openQuizOptionsModal("Bow-tie Practice", true);
+  openQuizOptionsModal("Bow-tie Practice", "questionCount");
 }
 function startTrendPractice(){
   if(!authState.user){ document.getElementById("authOverlay").style.display = "flex"; return; }
   const trendQuestions = QUESTIONS.filter(q=>q.trendStages && q.trendStages.length);
   if(trendQuestions.length===0){ alert("No trend questions are available right now — please try again shortly."); return; }
   pendingStart = {kind:"trendpractice", key:null};
-  openQuizOptionsModal("Trend Practice", true);
+  openQuizOptionsModal("Trend Practice", "questionCount");
 }
 function closeQuizOptionsModal(){
   document.getElementById("quizOptionsOverlay").style.display = "none";
@@ -3353,6 +3358,10 @@ async function confirmQuizMode(mode){
   if(p && PRACTICE_KINDS.has(p.kind)){
     const selectEl = document.getElementById("practiceCountSelect");
     p.count = selectEl ? parseInt(selectEl.value, 10) : 20;
+  }
+  if(p && p.kind==="casestudypractice"){
+    const csSelectEl = document.getElementById("caseStudyCountSelect");
+    p.count = csSelectEl ? parseInt(csSelectEl.value, 10) : 3;
   }
   closeQuizOptionsModal();
   if(!p) return;
@@ -3375,6 +3384,7 @@ async function confirmQuizMode(mode){
   else if(p.kind==="freemock") actuallyStartFreeMockTest();
   else if(p.kind==="adaptive") actuallyStartAdaptiveTest();
   else if(p.kind==="casestudy") actuallyStartCaseStudy(p.key);
+  else if(p.kind==="casestudypractice") actuallyStartCaseStudyPractice(p.count);
   else if(p.kind==="calcpractice") actuallyStartCalcPractice(p.count);
   else if(p.kind==="clozepractice") actuallyStartClozePractice(p.count);
   else if(p.kind==="matrixpractice") actuallyStartMatrixPractice(p.count);
@@ -3512,6 +3522,27 @@ function actuallyStartCaseStudy(caseNumber){
   state.testNumberForRetake = caseNumber;
   state.questions=qs; state.index=0; state.answers=[]; state.locked=false; state.selectedSata=new Set();
   state.caseStudyProgress[caseNumber] = {status:"progress"};
+  renderRail();
+  startQuizTimer();
+  renderQuestion();
+}
+
+/* The rail's actual Case Studies entry point. Picks `count` distinct case
+   studies at random (fresh each time, like the item-type practice modes —
+   this isn't one of the 30 numbered, retake-the-same-set Full Length
+   Tests) and chains them into one session. Reuses buildCaseStudyBlocks(),
+   the same helper Full Length Test and Free Mock Test use to embed case
+   studies into a longer test — each case study's 6 items stay contiguous
+   and in CJMM order, and carry their own scenario context directly (via
+   the _cs* fields), so renderQuestion() shows the right scenario panel
+   for each one automatically without any extra handling here. */
+function actuallyStartCaseStudyPractice(count){
+  const n = Math.max(1, Math.min(10, count||3));
+  const caseNumbers = shuffle(CASE_STUDIES.map(c=>c.case_number)).slice(0, n);
+  const qs = buildCaseStudyBlocks(caseNumbers).flat();
+  state.view="quiz"; state.quizKey="casestudypractice"; state.quizType="casestudypractice"; state.quizTitle="Case Studies";
+  state.testNumberForRetake = null;
+  state.questions=qs; state.index=0; state.answers=[]; state.locked=false; state.selectedSata=new Set();
   renderRail();
   startQuizTimer();
   renderQuestion();
@@ -4759,6 +4790,7 @@ function showResults(){
     : state.quizType==="freemock" ? `startFreeMockTest()`
     : state.quizType==="adaptive" ? `startAdaptiveTest()`
     : state.quizType==="casestudy" ? `startCaseStudy(${state.testNumberForRetake})`
+    : state.quizType==="casestudypractice" ? `startCaseStudyPractice()`
     : state.quizType==="vocabulary" ? `startVocabQuiz()`
     : state.quizType==="calcpractice" ? `startCalcPractice()`
     : state.quizType==="clozepractice" ? `startClozePractice()`
@@ -4768,7 +4800,7 @@ function showResults(){
     : state.quizType==="bowtiepractice" ? `startBowtiePractice()`
     : state.quizType==="trendpractice" ? `startTrendPractice()`
     : `openCustomTestModal()`;
-  const retakeLabel = (state.quizType==="full" || state.quizType==="hard" || state.quizType==="freemock" || state.quizType==="adaptive" || state.quizType==="casestudy" || state.quizType==="calcpractice" || state.quizType==="clozepractice" || state.quizType==="matrixpractice" || state.quizType==="hotspotpractice" || state.quizType==="orderedpractice" || state.quizType==="bowtiepractice" || state.quizType==="trendpractice") ? "Retake" : "Create another test";
+  const retakeLabel = (state.quizType==="full" || state.quizType==="hard" || state.quizType==="freemock" || state.quizType==="adaptive" || state.quizType==="casestudy" || state.quizType==="casestudypractice" || state.quizType==="calcpractice" || state.quizType==="clozepractice" || state.quizType==="matrixpractice" || state.quizType==="hotspotpractice" || state.quizType==="orderedpractice" || state.quizType==="bowtiepractice" || state.quizType==="trendpractice") ? "Retake" : "Create another test";
   const answeredCount = correct + partial + incorrect;
   const answeredTimeSum = state.answers
     .filter(a=>(a.status==="correct" || a.status==="partial" || a.status==="incorrect") && typeof a.timeSpentSeconds==="number")
