@@ -3210,14 +3210,10 @@ function actuallyStartCaseStudy(caseNumber){
   const cs = CASE_STUDIES.find(c=>c.case_number===caseNumber);
   if(!cs) return;
   const qs = cs.items.map((item,i)=>({
+    ...item,
     id: `CS${caseNumber}-${i+1}`,
     category: cs.category,
-    type: item.type,
-    subtopic: item.cjmm_step,
-    stem: item.stem,
-    options: item.options,
-    correct: item.correct,
-    explain: item.explain
+    subtopic: item.cjmm_step
   }));
   state.caseStudyScenarioStages = cs.scenario_stages || [];
   state.caseStudyTitle = cs.title;
