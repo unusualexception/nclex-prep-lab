@@ -253,9 +253,9 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
   .rail-btn.rail-btn-hard.active{background:var(--incorrect);color:#fff;}
   .rail-btn.rail-btn-locked{opacity:.55;}
   .rail-btn.rail-btn-locked:hover{opacity:.85;background:var(--paper);}
-  .rail-btn.rail-btn-free{border-color:var(--gold);background:var(--gold-100);}
-  .rail-btn.rail-btn-free:hover{border-color:var(--gold);}
-  .rail-btn.rail-btn-free.active{background:var(--gold);color:#fff;}
+  .rail-btn.rail-btn-highlight{border-color:var(--gold);background:var(--gold-100);}
+  .rail-btn.rail-btn-highlight:hover{border-color:var(--gold);}
+  .rail-btn.rail-btn-highlight.active{background:var(--gold);color:#fff;}
   .rail-btn.rail-btn-adaptive{border-color:var(--blue);}
   .rail-btn.rail-btn-adaptive:hover{border-color:var(--blue);}
   .rail-btn.rail-btn-adaptive.active{background:var(--blue);color:#fff;}
@@ -2919,7 +2919,7 @@ function renderRail(){
   const createTestSection = `
     <div class="rail-title">Create Your Own Test</div>
     <div class="rail-note" style="border-top:none;">Pick exactly how many questions from each category, weighted however you want. Good for drilling a weak area or building a mini-mock.</div>
-    <button class="rail-btn ${createTestLocked?'rail-btn-locked':''}" onclick="openCustomTestModal()">
+    <button class="rail-btn rail-btn-highlight ${createTestLocked?'rail-btn-locked':''}" onclick="openCustomTestModal()">
       <span class="id mono">✎ CREATE YOUR OWN TEST</span>
       ${createTestLocked ? `<span style="display:inline-flex;align-items:center;">${LOCK_ICON}</span>` : ""}
     </button>
@@ -2989,7 +2989,7 @@ function renderRail(){
   const calcSection = calcQuestionCount ? `
     <div class="rail-title" style="margin-top:16px;">Calculation Practice</div>
     <div class="rail-note" style="border-top:none;">Fill-in-the-blank/calculation questions — dosages, drip rates, and other numeric NCLEX item types. Pick how many questions when you start.</div>
-    <button class="rail-btn ${state.quizKey==="calcpractice"?"active":""}" onclick="startCalcPractice()">
+    <button class="rail-btn rail-btn-highlight ${state.quizKey==="calcpractice"?"active":""}" onclick="startCalcPractice()">
       <span class="id mono">🧮 CALC PRACTICE</span>
     </button>
   ` : "";
@@ -2998,7 +2998,7 @@ function renderRail(){
   const clozeSection = clozeQuestionCount ? `
     <div class="rail-title" style="margin-top:16px;">Cloze Practice</div>
     <div class="rail-note" style="border-top:none;">Drop-down fill-in-the-blank questions — complete clinical statements by choosing the right word or phrase from each dropdown. Pick how many questions when you start.</div>
-    <button class="rail-btn ${state.quizKey==="clozepractice"?"active":""}" onclick="startClozePractice()">
+    <button class="rail-btn rail-btn-highlight ${state.quizKey==="clozepractice"?"active":""}" onclick="startClozePractice()">
       <span class="id mono">▾ CLOZE PRACTICE</span>
     </button>
   ` : "";
@@ -3007,7 +3007,7 @@ function renderRail(){
   const matrixSection = matrixQuestionCount ? `
     <div class="rail-title" style="margin-top:16px;">Matrix/Grid Practice</div>
     <div class="rail-note" style="border-top:none;">Grid-based questions — sort findings or actions into the right columns, row by row. Pick how many questions when you start.</div>
-    <button class="rail-btn ${state.quizKey==="matrixpractice"?"active":""}" onclick="startMatrixPractice()">
+    <button class="rail-btn rail-btn-highlight ${state.quizKey==="matrixpractice"?"active":""}" onclick="startMatrixPractice()">
       <span class="id mono">▦ MATRIX PRACTICE</span>
     </button>
   ` : "";
@@ -3016,7 +3016,7 @@ function renderRail(){
   const hotspotSection = hotspotQuestionCount ? `
     <div class="rail-title" style="margin-top:16px;">Hot Spot Practice</div>
     <div class="rail-note" style="border-top:none;">Highlight the finding(s) directly within a nurses' note, lab report, or med record. Pick how many questions when you start.</div>
-    <button class="rail-btn ${state.quizKey==="hotspotpractice"?"active":""}" onclick="startHotspotPractice()">
+    <button class="rail-btn rail-btn-highlight ${state.quizKey==="hotspotpractice"?"active":""}" onclick="startHotspotPractice()">
       <span class="id mono">◈ HOT SPOT PRACTICE</span>
     </button>
   ` : "";
@@ -3025,7 +3025,7 @@ function renderRail(){
   const orderedSection = orderedQuestionCount ? `
     <div class="rail-title" style="margin-top:16px;">Ordered Response Practice</div>
     <div class="rail-note" style="border-top:none;">Arrange the steps, actions, or findings into the single correct sequence. Pick how many questions when you start.</div>
-    <button class="rail-btn ${state.quizKey==="orderedpractice"?"active":""}" onclick="startOrderedPractice()">
+    <button class="rail-btn rail-btn-highlight ${state.quizKey==="orderedpractice"?"active":""}" onclick="startOrderedPractice()">
       <span class="id mono">⇅ ORDERED RESPONSE PRACTICE</span>
     </button>
   ` : "";
@@ -3034,7 +3034,7 @@ function renderRail(){
   const bowtieSection = bowtieQuestionCount ? `
     <div class="rail-title" style="margin-top:16px;">Bow-tie Practice</div>
     <div class="rail-note" style="border-top:none;">Work a scenario through actions to take, the condition most likely happening, and parameters to monitor. Pick how many questions when you start.</div>
-    <button class="rail-btn ${state.quizKey==="bowtiepractice"?"active":""}" onclick="startBowtiePractice()">
+    <button class="rail-btn rail-btn-highlight ${state.quizKey==="bowtiepractice"?"active":""}" onclick="startBowtiePractice()">
       <span class="id mono">◇ BOW-TIE PRACTICE</span>
     </button>
   ` : "";
@@ -3043,7 +3043,7 @@ function renderRail(){
   const trendSection = trendQuestionCount ? `
     <div class="rail-title" style="margin-top:16px;">Trend Practice</div>
     <div class="rail-note" style="border-top:none;">Review data points across time — vitals, labs, or notes — and answer based on the pattern, not a single reading. Pick how many questions when you start.</div>
-    <button class="rail-btn ${state.quizKey==="trendpractice"?"active":""}" onclick="startTrendPractice()">
+    <button class="rail-btn rail-btn-highlight ${state.quizKey==="trendpractice"?"active":""}" onclick="startTrendPractice()">
       <span class="id mono">⤳ TREND PRACTICE</span>
     </button>
   ` : "";
@@ -3054,7 +3054,7 @@ function renderRail(){
   const caseSection = CASE_STUDIES.length ? `
     <div class="rail-title" style="margin-top:16px;">Case Studies</div>
     <div class="rail-note" style="border-top:none;">Next Gen NCLEX-style unfolding scenarios — one evolving patient picture, 6 linked questions following the Clinical Judgment Measurement Model. Pick how many case studies when you start.</div>
-    <button class="rail-btn ${state.quizKey==="casestudypractice"?"active":""} ${caseLocked?'rail-btn-locked':''}" onclick="${caseLocked ? 'openUpgradeModal()' : 'startCaseStudyPractice()'}">
+    <button class="rail-btn rail-btn-highlight ${state.quizKey==="casestudypractice"?"active":""} ${caseLocked?'rail-btn-locked':''}" onclick="${caseLocked ? 'openUpgradeModal()' : 'startCaseStudyPractice()'}">
       <span class="id mono" style="display:inline-flex;align-items:center;gap:4px;">🩺 CASE STUDIES${caseLockBadge}</span>
     </button>
   ` : "";
