@@ -533,7 +533,7 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
         <button type="submit" class="btn" id="authSubmitBtn" style="width:100%;">Log in</button>
         <p id="authTermsNote" style="display:none;font-size:11px;color:var(--ink-soft);text-align:center;margin:10px 0 0;line-height:1.5;">By creating an account, you agree to our <button type="button" class="link-btn" onclick="openTermsModal()">Terms &amp; Conditions</button>.</p>
       </form>
-      <div class="auth-guest-note">An account is required to take any test — it's how your one free mock test and your results history work. Signing up takes under a minute.</div>
+      <div class="auth-guest-note">Creating an account saves your results and unlocks full test access — including your Free Diagnostic Test details. Signing up takes under a minute.</div>
     </div>
   </div>
 
@@ -592,9 +592,9 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
     <div class="auth-modal upgrade-modal">
       <button class="auth-close" id="upgradeCloseBtn" aria-label="Close">×</button>
       <h3 id="upgradeTitle" style="margin:0 0 4px;font-size:17px;">Upgrade to keep going</h3>
-      <p id="upgradeSubtitle" style="font-size:12.5px;color:var(--ink-soft);margin:0 0 16px;">Your free mock test is used, or this is a premium feature. Pick a plan below, or enter a promo code if you have one.</p>
+      <p id="upgradeSubtitle" style="font-size:12.5px;color:var(--ink-soft);margin:0 0 16px;">This is a premium feature. Pick a plan below, or enter a promo code if you have one.</p>
       <div id="upgradeLoginBanner" style="display:none;background:var(--teal-100);border-radius:8px;padding:12px 14px;margin-bottom:16px;font-size:12.5px;color:var(--teal-900);">
-        You'll need an account to get started — it only takes a minute, and it's how your free mock test and results history work.
+        You'll need an account to get started — it only takes a minute, and it's how your Free Diagnostic Test and results history work.
         <button type="button" class="btn" style="display:block;width:100%;margin-top:10px;font-size:12.5px;padding:8px;" onclick="closeUpgradeModal(); openAuthModal('signup');">Log in / Sign up</button>
       </div>
       <div id="pricingCards" class="pricing-cards"></div>
@@ -1182,10 +1182,13 @@ async function saveResultToSupabase(record, questions, answers){
   const statusEl = document.getElementById("saveStatus");
   if(!sbClient) tryInitSupabaseClient();
   if(!sbClient){
-    const msg = supabaseConfigured
-      ? "Not saved — having trouble reaching our backend right now (results shown here only)"
-      : "Not saved — Supabase isn't connected yet (results shown here only)";
-    if(statusEl) statusEl.innerHTML = `<span class="save-status off">${msg}</span>`;
+    // Genuinely nothing to save to right now (Supabase not configured, or
+    // unreachable). This isn't something a test-taker should have to
+    // parse or worry about — their results are still shown on this same
+    // screen either way, they just won't persist to history. Full detail
+    // stays in the console for whoever's debugging the setup.
+    console.error(supabaseConfigured ? "Supabase client unavailable — result not saved." : "Supabase isn't configured — result not saved.");
+    if(statusEl) statusEl.innerHTML = "";
     return;
   }
   const userId = authState.user ? authState.user.id : null;
@@ -1222,8 +1225,15 @@ async function saveResultToSupabase(record, questions, answers){
 
     if(statusEl) statusEl.innerHTML = `<span class="save-status ok">✓ Result + all answers saved${authState.user? " to your account" : " as guest"}</span>`;
   }catch(e){
-    console.error("Supabase save failed:", e);
-    if(statusEl) statusEl.innerHTML = `<span class="save-status err">⚠ Couldn't save this result — check your Supabase setup</span>`;
+    // A failed save is a real problem worth knowing about as the
+    // developer (most likely cause: RLS policies blocking the insert —
+    // see create-user-sessions-and-claiming.sql and the profiles/
+    // quiz_results/quiz_answers policies) but not something to surface
+    // as a technical, alarming message to whoever's actually taking the
+    // test. Their results are still fully visible on this same screen;
+    // they just silently won't be there in history until this is fixed.
+    console.error("Supabase save failed (check RLS policies on quiz_results/quiz_answers):", e);
+    if(statusEl) statusEl.innerHTML = "";
   }
 }
 
@@ -5137,8 +5147,8 @@ async function openUpgradeModal(){
   document.getElementById("upgradePromoSection").style.display = loggedIn ? "block" : "none";
   document.getElementById("upgradeTitle").textContent = loggedIn ? "Upgrade to keep going" : "This test needs an account";
   document.getElementById("upgradeSubtitle").textContent = loggedIn
-    ? "Your free mock test is used, or this is a premium feature. Pick a plan below, or enter a promo code if you have one."
-    : "Here's what's included — log in or sign up first, then come back to any of these plans (or your free mock test) whenever you're ready.";
+    ? "This is a premium feature. Pick a plan below, or enter a promo code if you have one."
+    : "Here's what's included — log in or sign up first, then come back to any of these plans (or your Free Diagnostic Test) whenever you're ready.";
   document.getElementById("promoCodeInput").value = "";
   document.getElementById("promoMessage").textContent = "";
   const pricing = await loadPricing();
@@ -5248,7 +5258,7 @@ async function goAdmin(){
 
     <div class="card">
       <h3>User Lookup &amp; Access</h3>
-      <p style="font-size:12.5px;color:var(--ink-soft);margin:0 0 14px;">Search by email to grant access, extend a subscription, or reset a student's free mock test.</p>
+      <p style="font-size:12.5px;color:var(--ink-soft);margin:0 0 14px;">Search by email to grant access or extend a subscription.</p>
       <div style="display:flex;gap:8px;margin-bottom:14px;">
         <input type="email" id="adminUserSearch" placeholder="student@email.com" style="flex:1;border:1px solid var(--line);border-radius:6px;padding:8px;">
         <button type="button" class="btn" onclick="searchAdminUser()">Search</button>
