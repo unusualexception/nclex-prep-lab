@@ -468,7 +468,7 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
     <div class="brand" id="brandHome" tabindex="0" role="button" aria-label="Go to dashboard">
       <span class="brand-mark">NCLEX</span><span class="brand-sub">PREP LAB</span>
     </div>
-    <button class="btn create-test-btn" onclick="startFreeMockTest()">⭐ Free Mock Test<span id="freeMockTopBadge"></span></button>
+    <button class="btn create-test-btn" onclick="startFreeMockTest()">⭐ Free Diagnostic Test<span id="freeMockTopBadge"></span></button>
     <div class="topbar-right">
       <button class="topbar-help-btn" onclick="openIssueModal()">Report Issue</button>
       <button class="topbar-help-btn" onclick="openContactModal()">Contact Us</button>
@@ -751,9 +751,105 @@ tryInitSupabaseClient();
    ========================================================================= */
 const authState = { user:null, guestId:null, profile:null, profileError:null };
 let authMode = "signin";
+const GUEST_ID_STORAGE_KEY = "nclex_guest_id";
 
 function newGuestId(){
   return (window.crypto && crypto.randomUUID) ? crypto.randomUUID() : "guest-"+Math.random().toString(36).slice(2)+Date.now();
+}
+/* Guest identity has to survive a page reload for claim_guest_data() to
+   have anything to claim later — a guest who takes the diagnostic, closes
+   the tab, and comes back to sign up needs the SAME guest_id both times.
+   Previously this regenerated on every load, which silently meant any
+   "link my guest data to my new account" feature could never work. Falls
+   back to a fresh in-memory id if localStorage is unavailable (private
+   browsing, storage disabled, etc.) rather than breaking the app. */
+function loadOrCreateGuestId(){
+  try{
+    let gid = localStorage.getItem(GUEST_ID_STORAGE_KEY);
+    if(!gid){ gid = newGuestId(); localStorage.setItem(GUEST_ID_STORAGE_KEY, gid); }
+    return gid;
+  }catch(e){
+    return newGuestId();
+  }
+}
+function replaceStoredGuestId(){
+  const gid = newGuestId();
+  try{ localStorage.setItem(GUEST_ID_STORAGE_KEY, gid); }catch(e){}
+  return gid;
+}
+
+/* ---------- Session + device tracking ----------
+   Collected entirely from standard, first-party browser APIs
+   (navigator.userAgent, screen, Intl, document.referrer) — no
+   third-party analytics/tracking service involved. "Country of origin"
+   specifically isn't something a client-side app can determine on its
+   own (that needs either a third-party geolocation API or a server that
+   can see the request IP, neither of which this app has); the IANA
+   timezone is stored instead as a free, first-party, approximate stand-in
+   for region. See create-user-sessions-and-claiming.sql for the full
+   schema/RPC design and a privacy note worth reading before this ships. */
+function parseUserAgent(){
+  const ua = (typeof navigator!=="undefined" && navigator.userAgent) || "";
+  let browser = "Unknown", browserVersion = "";
+  let os = "Unknown";
+  let deviceType = "desktop";
+
+  if(/Edg\//.test(ua)){ browser="Edge"; browserVersion=(ua.match(/Edg\/([\d.]+)/)||[])[1]||""; }
+  else if(/OPR\//.test(ua)){ browser="Opera"; browserVersion=(ua.match(/OPR\/([\d.]+)/)||[])[1]||""; }
+  else if(/Chrome\//.test(ua)){ browser="Chrome"; browserVersion=(ua.match(/Chrome\/([\d.]+)/)||[])[1]||""; }
+  else if(/Firefox\//.test(ua)){ browser="Firefox"; browserVersion=(ua.match(/Firefox\/([\d.]+)/)||[])[1]||""; }
+  else if(/Safari\//.test(ua) && /Version\//.test(ua)){ browser="Safari"; browserVersion=(ua.match(/Version\/([\d.]+)/)||[])[1]||""; }
+
+  if(/Windows/.test(ua)) os="Windows";
+  else if(/Mac OS X/.test(ua) && !/iPhone|iPad|iPod/.test(ua)) os="macOS";
+  else if(/Android/.test(ua)) os="Android";
+  else if(/iPhone|iPad|iPod/.test(ua)) os="iOS";
+  else if(/Linux/.test(ua)) os="Linux";
+
+  if(/iPad/.test(ua) || (/Android/.test(ua) && !/Mobile/.test(ua))) deviceType="tablet";
+  else if(/Mobi|iPhone|Android/.test(ua)) deviceType="mobile";
+
+  return { browser, browserVersion, os, deviceType };
+}
+
+let currentSessionId = null;
+let sessionHeartbeatHandle = null;
+async function startSessionTracking(){
+  if(!sbClient) return;
+  try{
+    const { browser, browserVersion, os, deviceType } = parseUserAgent();
+    const { data, error } = await sbClient.rpc("start_session", {
+      p_guest_id: authState.user ? null : authState.guestId,
+      p_browser: browser,
+      p_browser_version: browserVersion,
+      p_os: os,
+      p_device_type: deviceType,
+      p_screen_width: (typeof screen!=="undefined" && screen.width) || null,
+      p_screen_height: (typeof screen!=="undefined" && screen.height) || null,
+      p_language: (typeof navigator!=="undefined" && navigator.language) || null,
+      p_timezone: (typeof Intl!=="undefined" && Intl.DateTimeFormat) ? Intl.DateTimeFormat().resolvedOptions().timeZone : null,
+      p_referrer: (typeof document!=="undefined" && document.referrer) || null,
+      p_landing_path: (typeof location!=="undefined") ? (location.pathname + location.search) : null,
+      p_user_agent: (typeof navigator!=="undefined" && navigator.userAgent) || null
+    });
+    if(error) throw error;
+    currentSessionId = data;
+    if(sessionHeartbeatHandle) clearInterval(sessionHeartbeatHandle);
+    sessionHeartbeatHandle = setInterval(touchSession, 60000);
+    if(typeof document!=="undefined"){
+      document.addEventListener("visibilitychange", ()=>{ if(document.visibilityState==="hidden") touchSession(); });
+    }
+    if(typeof window!=="undefined"){
+      window.addEventListener("pagehide", touchSession);
+    }
+  }catch(e){
+    console.error("Session tracking failed to start:", e);
+  }
+}
+async function touchSession(){
+  if(!sbClient || !currentSessionId) return;
+  try{ await sbClient.rpc("touch_session", { p_session_id: currentSessionId }); }
+  catch(e){ /* best-effort — a missed heartbeat shouldn't disrupt the app */ }
 }
 
 async function initAuth(){
@@ -768,16 +864,33 @@ async function initAuth(){
       console.error("Supabase auth check failed — continuing as guest.", e);
     }
   }
-  if(!authState.user) authState.guestId = newGuestId();
+  if(!authState.user) authState.guestId = loadOrCreateGuestId();
   renderAccountWidget();
+  startSessionTracking();
 }
 async function applySession(session){
   const u = session.user;
+  const claimableGuestId = authState.guestId; // capture before we clear it below
   authState.user = { id:u.id, email:u.email, name:(u.user_metadata && u.user_metadata.full_name) || u.email.split("@")[0] };
   authState.guestId = null;
+  try{ localStorage.removeItem(GUEST_ID_STORAGE_KEY); }catch(e){}
   await fetchProfile();
   renderAccountWidget();
   if(document.getElementById("railList")) renderRail();
+  // Link any quiz results / sessions logged under their guest identity
+  // (including the one just recorded for this very visit) to the account
+  // they just signed into, so nothing they did before creating an account
+  // is orphaned or invisible in their history afterward.
+  if(claimableGuestId && sbClient){
+    try{ await sbClient.rpc("claim_guest_data", { p_guest_id: claimableGuestId }); }
+    catch(e){ console.error("Couldn't link prior guest activity to this account:", e); }
+  }
+  // If they just signed up straight from the gated diagnostic results
+  // screen, unlock the detailed view right there instead of making them
+  // retake the test to see their own results.
+  if(state.view==="results" && state.quizType==="freemock" && state.questions && state.questions.length){
+    showResults();
+  }
 }
 async function fetchProfile(){
   if(!sbClient || !authState.user) return;
@@ -805,9 +918,10 @@ function clearSession(){
   authState.user = null;
   authState.profile = null;
   authState.profileError = null;
-  authState.guestId = newGuestId();
+  authState.guestId = replaceStoredGuestId();
   renderAccountWidget();
   if(document.getElementById("railList")) renderRail();
+  startSessionTracking();
 }
 function hasActiveSubscription(){
   const p = authState.profile;
@@ -828,9 +942,10 @@ function hardTestAccessState(){
   return "upgrade";
 }
 function freeMockTestAccessState(){
-  // Free for any logged-in account, regardless of subscription status —
-  // this is the one always-available, always-retakeable showcase test.
-  if(!authState.user) return "login";
+  // Available to everyone, signed in or as a guest — this is the one
+  // no-signup-required diagnostic. Taking it is always open; only the
+  // DETAILED results afterward are gated behind creating a free account
+  // (see the isGuestDiagnostic branch in showResults()).
   return "open";
 }
 function adaptiveTestAccessState(){
@@ -2559,6 +2674,7 @@ const state = {
   testProgress:{},         // testNumber -> {status, score}
   hardTestProgress:{},     // testNumber -> {status, score}
   freeMockTestProgress:null, // {status, score} — single fixed test, no number key needed
+  resultsSaved:false,     // guards against double-inserting quiz_results — see startQuizTimer()
   adaptiveCategorySequence:[], // pre-set weighted category order for the current adaptive attempt
   adaptiveCurrentTier:3,       // 1-5, moves up/down after each answer
   adaptiveTierHistory:[],      // {tier, status} per question, for the post-test progression chart
@@ -2687,8 +2803,8 @@ function buildCaseStudyBlocks(caseNumbers){
    category on target regardless of which categories the case studies
    happened to draw from. Still keeps the ~90/10 traditional/NGN-extended
    split within each category's remaining budget, and still guarantees a
-   leading SATA per category when requested (for Free Mock Test's
-   showcase-the-richest-format touch) and available. */
+   leading SATA per category when requested (for the Free Diagnostic
+   Test's showcase-the-richest-format touch) and available. */
 function pickStandaloneWeightedSplit(targetTotal, csCountByCategory, seed, guaranteeSataPerCategory){
   let selected = [];
   CATEGORIES.forEach((c,ci)=>{
@@ -2784,65 +2900,32 @@ function buildHardTest(testNumber){
   return seededShuffle(selected, seed+555);
 }
 
-/* The Free Mock Test is a shorter, approachable 50-question sample —
-   long enough to feel like a real practice session without demanding an
-   85-150 item sitting, while still keeping the real exam's DNA: one full
-   unfolding case study (6 items — close to the real exam's 12-21%
-   case-study share at this length, scaled down from the 3-case-study
-   block Full Length Tests use) + 44 standalone items in the same ~90%
-   traditional / ~10% NGN-extended split, category-weighted the same way
-   as everywhere else. Unlike the 30 numbered Full Length Tests, it's the
-   same questions every time rather than a fresh random draw, since this
-   is meant to be a consistent, dependable showcase of the bank's quality
-   rather than one of many interchangeable practice runs. Within the
-   traditional bucket it still deliberately leads with a SATA question per
-   category when one's available — SATA items carry a full per-option
-   rationale breakdown, the richest explanation format in the bank, and a
-   free account's one guaranteed test is exactly where that should be
-   front and center. */
-/* The Free Mock Test is a shorter, approachable 50-question sample —
-   long enough to feel like a real practice session without demanding an
-   85-150 item sitting, while still keeping the real exam's DNA: one full
-   unfolding case study (6 items — close to the real exam's 12-21%
-   case-study share at this length, scaled down from the 3-case-study
-   block Full Length Tests use) + 44 standalone items in the same ~90%
-   traditional / ~10% NGN-extended split, category-weighted the same way
-   as everywhere else. Because a single case study puts its whole 6-item
-   weight on just one category, pickStandaloneWeightedSplit() accounts for
-   that when filling the rest — otherwise that one category would end up
-   double-counted (its case-study items plus a full, un-adjusted share of
-   the standalone pool on top). Unlike the 30 numbered Full Length Tests,
-   it's the same questions every time rather than a fresh random draw,
-   since this is meant to be a consistent, dependable showcase of the
-   bank's quality rather than one of many interchangeable practice runs.
-   Within the traditional bucket it still deliberately leads with a SATA
-   question per category when one's available — SATA items carry a full
-   per-option rationale breakdown, the richest explanation format in the
-   bank, and a free account's one guaranteed test is exactly where that
-   should be front and center. */
+/* The Free Diagnostic Test is a fast, 25-question sample meant to give
+   someone a quick, honest read on where they stand — not a full exam
+   simulation. Deliberately no case study block here: a single 6-item case
+   study would eat 24% of just 25 questions into whichever ONE category it
+   happened to be tagged with, leaving some of the other 7 categories with
+   only 1-2 questions each — not enough to say anything meaningful about
+   strengths/focus areas per category, which is the whole point of this
+   test (see showResults()). Pure standalone items instead, same ~90%
+   traditional / ~10% NGN-extended split and category weighting as
+   everywhere else, so all 8 categories get real, comparable coverage.
+   Same fixed set of questions every time (not a fresh random draw) since
+   this is meant to be a consistent, dependable diagnostic rather than one
+   of many interchangeable practice runs — and still leads with a SATA
+   question per category when available, since SATA items carry the
+   richest explanation format in the bank. */
 function buildFreeMockTest(){
-  const targetTotal = Math.min(50, QUESTIONS.length + 6);
+  const targetTotal = Math.min(25, QUESTIONS.length);
   const seed = 8675309;
-
-  const caseNumbers = CASE_STUDIES.length ? seededShuffle(CASE_STUDIES.map(c=>c.case_number), seed+3001).slice(0,1) : [];
-  const csBlocks = buildCaseStudyBlocks(caseNumbers);
-  const csTotal = csBlocks.reduce((n,b)=>n+b.length,0);
-  const csCountByCategory = {};
-  csBlocks.flat().forEach(q => { csCountByCategory[q.category] = (csCountByCategory[q.category]||0)+1; });
-
-  const standaloneTotal = Math.max(0, targetTotal - csTotal);
-  let standaloneSelected = pickStandaloneWeightedSplit(targetTotal, csCountByCategory, seed+101, true);
-
-  if(standaloneSelected.length < standaloneTotal){
-    const usedIds = new Set([...standaloneSelected.map(q=>q.id), ...csBlocks.flat().map(q=>q.id)]);
+  let selected = pickStandaloneWeightedSplit(targetTotal, {}, seed+101, true);
+  if(selected.length < targetTotal){
+    const usedIds = new Set(selected.map(q=>q.id));
     const leftover = seededShuffle(QUESTIONS.filter(q=>!usedIds.has(q.id)), seed+888);
-    standaloneSelected.push(...leftover.slice(0, standaloneTotal-standaloneSelected.length));
+    selected.push(...leftover.slice(0, targetTotal-selected.length));
   }
-  standaloneSelected = standaloneSelected.slice(0, standaloneTotal);
-
-  const standaloneShuffled = seededShuffle(standaloneSelected, seed+303);
-  const units = [...csBlocks, ...standaloneShuffled.map(q=>[q])];
-  return seededShuffle(units, seed+404).flat().slice(0, targetTotal);
+  selected = selected.slice(0, targetTotal);
+  return seededShuffle(selected, seed+303);
 }
 
 /* ---------- Adaptive Practice ----------
@@ -3268,11 +3351,15 @@ function startHardTest(n){
   pendingStart = {kind:"hard", key:n};
   openQuizOptionsModal("Hard Test "+n, "none");
 }
-function startFreeMockTest(){
-  const access = freeMockTestAccessState();
-  if(access!=="open"){ openAuthModal("signin"); return; }
+async function startFreeMockTest(){
+  // No feedback-mode choice for the diagnostic — it's always Exam Mode
+  // (answers revealed only at the end, not after each question), which
+  // is also exactly what turns on the existing proportional countdown
+  // timer: questions.length * 2 minutes (see startQuizTimer()). Routing
+  // through confirmQuizMode('end') reuses its existing fullDataReadyPromise
+  // guard rather than duplicating it here.
   pendingStart = {kind:"freemock", key:null};
-  openQuizOptionsModal("Free Mock Test", "none");
+  await confirmQuizMode("end");
 }
 function startAdaptiveTest(){
   const access = adaptiveTestAccessState();
@@ -3483,7 +3570,7 @@ function actuallyStartHardTest(n){
 
 function actuallyStartFreeMockTest(){
   const qs = buildFreeMockTest();
-  state.view="quiz"; state.quizKey="freemock"; state.quizType="freemock"; state.quizTitle="Free Mock Test";
+  state.view="quiz"; state.quizKey="freemock"; state.quizType="freemock"; state.quizTitle="Free Diagnostic Test";
   state.testNumberForRetake = null;
   state.questions=qs; state.index=0; state.answers=[]; state.locked=false; state.selectedSata=new Set();
   state.freeMockTestProgress = {status:"progress"};
@@ -3531,8 +3618,8 @@ function actuallyStartCaseStudy(caseNumber){
    studies at random (fresh each time, like the item-type practice modes —
    this isn't one of the 30 numbered, retake-the-same-set Full Length
    Tests) and chains them into one session. Reuses buildCaseStudyBlocks(),
-   the same helper Full Length Test and Free Mock Test use to embed case
-   studies into a longer test — each case study's 6 items stay contiguous
+   the same helper Full Length Test uses to embed case studies into a
+   longer test — each case study's 6 items stay contiguous
    and in CJMM order, and carry their own scenario context directly (via
    the _cs* fields), so renderQuestion() shows the right scenario panel
    for each one automatically without any extra handling here. */
@@ -3672,6 +3759,11 @@ function startQuizTimer(){
   state.testStartTime = Date.now();
   state.questionStartTime = Date.now();
   state.examDeadline = state.feedbackMode==="end" ? (Date.now() + state.questions.length*120*1000) : null;
+  // showResults() can legitimately run twice for the same completed test
+  // (once right after finishing, and again if a guest signs up on the
+  // gated diagnostic results screen — see applySession()) — this guard
+  // keeps that from inserting a duplicate row into quiz_results.
+  state.resultsSaved = false;
   updateQuizTimerDisplay();
   state.timerHandle = setInterval(updateQuizTimerDisplay, 1000);
 }
@@ -4692,6 +4784,50 @@ function showResults(){
     </div>`;
   }).join("");
 
+  // The Free Diagnostic Test is the one no-signup-required quiz. Taking
+  // it is always open (see freeMockTestAccessState()), but the detailed
+  // breakdown afterward is the incentive to create a free account —
+  // guests see only their overall accuracy and a sign-up prompt here.
+  const isDiagnostic = state.quizType==="freemock";
+  const isGuestDiagnostic = isDiagnostic && !authState.user;
+
+  // For the diagnostic specifically, frame the category breakdown as
+  // explicit strong-areas / focus-areas call-outs rather than just a
+  // plain bar chart — that's the actionable "here's what to study next"
+  // read a quick diagnostic is supposed to give. 70% is the same rough
+  // mastery line commonly used elsewhere in NCLEX prep; categories below
+  // it are sorted worst-first so the thing most worth attention leads.
+  const catStats = Object.entries(byCat).map(([key,v])=>({
+    key, label: CAT[key].label,
+    pct: v.total ? Math.round((v.correct/v.total)*100) : 0,
+    correct: v.correct, total: v.total
+  }));
+  const strongAreas = catStats.filter(c=>c.pct>=70).sort((a,b)=>b.pct-a.pct);
+  const focusAreas = catStats.filter(c=>c.pct<70).sort((a,b)=>a.pct-b.pct);
+  function areaRow(c, barColor){
+    return `<div class="weight-row">
+      <div class="weight-label">${c.label}</div>
+      <div class="weight-bar-track"><div class="weight-bar-fill" style="width:${c.pct}%;background:${barColor}"></div></div>
+      <div class="weight-pct mono">${c.pct}%</div>
+      <div class="weight-cov mono">${c.correct}/${c.total}</div>
+    </div>`;
+  }
+  const strengthsFocusSection = isDiagnostic ? `
+    <div class="card">
+      <h3>Strengths & focus areas</h3>
+      <p style="font-size:12.5px;color:var(--ink-soft);margin:0 0 16px;">Based on ${catStats.reduce((n,c)=>n+c.total,0)} questions across ${catStats.length} categories in this diagnostic. With just a few questions per category, treat this as a starting signal, not a verdict — a longer test will sharpen the picture.</p>
+      <div style="margin-bottom:${focusAreas.length?"16px":"0"};">
+        <div style="font-size:12px;font-weight:700;color:var(--correct);text-transform:uppercase;letter-spacing:.04em;margin-bottom:8px;">✓ Strong areas</div>
+        ${strongAreas.length ? strongAreas.map(c=>areaRow(c,"var(--correct)")).join("") : `<p style="font-size:12.5px;color:var(--ink-soft);margin:0;">No category reached 70% on this diagnostic yet — see focus areas below.</p>`}
+      </div>
+      ${focusAreas.length ? `
+      <div>
+        <div style="font-size:12px;font-weight:700;color:var(--incorrect);text-transform:uppercase;letter-spacing:.04em;margin-bottom:8px;">→ Areas to focus on</div>
+        ${focusAreas.map(c=>areaRow(c,"var(--incorrect)")).join("")}
+      </div>` : `<p style="font-size:12.5px;color:var(--ink-soft);margin:0;">Strong across the board on this diagnostic — nice work.</p>`}
+    </div>
+  ` : "";
+
   // Full per-question review — every question, including skipped
   const statusIcon = {correct:"✓", partial:"◐", incorrect:"✗", skipped:"⏭"};
   const reviewHtml = state.questions.map((q,i)=>{
@@ -4808,46 +4944,66 @@ function showResults(){
   const avgSecPerQ = answeredCount ? Math.round(answeredTimeSum/answeredCount) : 0;
   const summaryCommentary = generateSummaryCommentary(byCat, total, correct, skipped, answeredCount, pct, totalTimeSeconds, avgSecPerQ);
 
-  document.getElementById("main").innerHTML = `
-    <div class="card">
-      <div class="score-hero"><span class="score-big" style="color:${weightedScore>=weightedMax*0.7?'var(--correct)':weightedScore>=weightedMax*0.5?'var(--gold)':'var(--incorrect)'}">${weightedScore}</span><span class="score-sub">of ${weightedMax} pts — ${state.quizTitle}</span></div>
-      <p class="mono" style="font-size:13px;color:var(--ink-soft);margin:2px 0 0;">${correct} correct · ${incorrect} incorrect · ${skipped} skipped &nbsp;(${pct}% accuracy) &nbsp;·&nbsp; scoring: +2 correct, 0 incorrect/skipped, SATA partial credit per +/- rule</p>
-      ${totalTimeSeconds!==null ? `<p class="mono" style="font-size:12px;color:var(--ink-soft);margin:2px 0 0;">Completed in ${formatHMS(totalTimeSeconds)}</p>` : ""}
-      <div id="saveStatus"><span class="save-status off">Saving...</span></div>
-      <div class="cta-row">
-        <button class="btn" onclick="${retakeAction}">${retakeLabel}</button>
-        <button class="btn secondary" onclick="goHome()">Back to dashboard</button>
+  if(isGuestDiagnostic){
+    document.getElementById("main").innerHTML = `
+      <div class="card">
+        <div class="score-hero"><span class="score-big" style="color:${pct>=70?'var(--correct)':pct>=50?'var(--gold)':'var(--incorrect)'}">${pct}%</span><span class="score-sub">overall accuracy — ${state.quizTitle}</span></div>
+        <p class="mono" style="font-size:13px;color:var(--ink-soft);margin:2px 0 0;">${correct} correct · ${incorrect} incorrect · ${skipped} skipped out of ${total} questions</p>
+        ${totalTimeSeconds!==null ? `<p class="mono" style="font-size:12px;color:var(--ink-soft);margin:2px 0 0;">Completed in ${formatHMS(totalTimeSeconds)}</p>` : ""}
+        <div id="saveStatus"><span class="save-status off">Saving...</span></div>
       </div>
-    </div>
-    <div class="card">
-      <h3>How this test went</h3>
-      <p style="font-size:13.5px;line-height:1.65;margin:0;">${summaryCommentary}</p>
-    </div>
-    ${state.quizType==="adaptive" && state.adaptiveTierHistory.length ? `
-    <div class="card">
-      <h3>Difficulty progression</h3>
-      <p style="font-size:12.5px;color:var(--ink-soft);margin:0 0 14px;">Each bar is one question — taller means harder. Difficulty moved up after a correct answer and down after an incorrect or skipped one, the same core mechanic real adaptive testing uses (see note on this test's methodology below).</p>
-      <div style="display:flex;align-items:flex-end;gap:2px;height:70px;">
-        ${state.adaptiveTierHistory.map((h,i)=>{
-          const heightPct = Math.max(12, (h.tier/5)*100);
-          const color = h.status==="correct" ? "var(--correct)" : h.status==="incorrect" ? "var(--incorrect)" : "var(--gold)";
-          return `<div style="flex:1;height:${heightPct}%;background:${color};border-radius:2px 2px 0 0;min-width:2px;" title="Question ${i+1} — tier ${h.tier}, ${h.status}"></div>`;
-        }).join("")}
+      <div class="card" style="text-align:center;">
+        <h3>See your full results</h3>
+        <p style="font-size:13.5px;line-height:1.65;color:var(--ink-soft);margin:0 0 18px;">Create a free account to unlock your strong areas, focus areas, and a full explanation for every question — free, no card required.</p>
+        <div class="cta-row" style="justify-content:center;">
+          <button class="btn" onclick="openAuthModal('signup')">Create free account</button>
+          <button class="btn secondary" onclick="goHome()">Back to dashboard</button>
+        </div>
       </div>
-      <div style="display:flex;justify-content:space-between;font-size:10px;color:var(--ink-soft);margin-top:4px;">
-        <span>Q1</span><span>Q${state.adaptiveTierHistory.length}</span>
+    `;
+  } else {
+    document.getElementById("main").innerHTML = `
+      <div class="card">
+        <div class="score-hero"><span class="score-big" style="color:${weightedScore>=weightedMax*0.7?'var(--correct)':weightedScore>=weightedMax*0.5?'var(--gold)':'var(--incorrect)'}">${weightedScore}</span><span class="score-sub">of ${weightedMax} pts — ${state.quizTitle}</span></div>
+        <p class="mono" style="font-size:13px;color:var(--ink-soft);margin:2px 0 0;">${correct} correct · ${incorrect} incorrect · ${skipped} skipped &nbsp;(${pct}% accuracy) &nbsp;·&nbsp; scoring: +2 correct, 0 incorrect/skipped, SATA partial credit per +/- rule</p>
+        ${totalTimeSeconds!==null ? `<p class="mono" style="font-size:12px;color:var(--ink-soft);margin:2px 0 0;">Completed in ${formatHMS(totalTimeSeconds)}</p>` : ""}
+        <div id="saveStatus"><span class="save-status off">Saving...</span></div>
+        <div class="cta-row">
+          <button class="btn" onclick="${retakeAction}">${retakeLabel}</button>
+          <button class="btn secondary" onclick="goHome()">Back to dashboard</button>
+        </div>
       </div>
-      <p style="font-size:11px;color:var(--ink-soft);margin:14px 0 0;line-height:1.5;">This uses a heuristic difficulty scale (1–5) based on question format and content complexity — not empirically calibrated Item Response Theory data like the real NCLEX. It's genuinely adaptive in mechanic, not in psychometric validity.</p>
-    </div>` : ""}
-    <div class="card">
-      <h3>Score by category</h3>
-      ${catRows}
-    </div>
-    <div class="card">
-      <h3>Full review — every question (${total})</h3>
-      ${reviewHtml}
-    </div>
-  `;
+      <div class="card">
+        <h3>How this test went</h3>
+        <p style="font-size:13.5px;line-height:1.65;margin:0;">${summaryCommentary}</p>
+      </div>
+      ${state.quizType==="adaptive" && state.adaptiveTierHistory.length ? `
+      <div class="card">
+        <h3>Difficulty progression</h3>
+        <p style="font-size:12.5px;color:var(--ink-soft);margin:0 0 14px;">Each bar is one question — taller means harder. Difficulty moved up after a correct answer and down after an incorrect or skipped one, the same core mechanic real adaptive testing uses (see note on this test's methodology below).</p>
+        <div style="display:flex;align-items:flex-end;gap:2px;height:70px;">
+          ${state.adaptiveTierHistory.map((h,i)=>{
+            const heightPct = Math.max(12, (h.tier/5)*100);
+            const color = h.status==="correct" ? "var(--correct)" : h.status==="incorrect" ? "var(--incorrect)" : "var(--gold)";
+            return `<div style="flex:1;height:${heightPct}%;background:${color};border-radius:2px 2px 0 0;min-width:2px;" title="Question ${i+1} — tier ${h.tier}, ${h.status}"></div>`;
+          }).join("")}
+        </div>
+        <div style="display:flex;justify-content:space-between;font-size:10px;color:var(--ink-soft);margin-top:4px;">
+          <span>Q1</span><span>Q${state.adaptiveTierHistory.length}</span>
+        </div>
+        <p style="font-size:11px;color:var(--ink-soft);margin:14px 0 0;line-height:1.5;">This uses a heuristic difficulty scale (1–5) based on question format and content complexity — not empirically calibrated Item Response Theory data like the real NCLEX. It's genuinely adaptive in mechanic, not in psychometric validity.</p>
+      </div>` : ""}
+      ${isDiagnostic ? strengthsFocusSection : `
+      <div class="card">
+        <h3>Score by category</h3>
+        ${catRows}
+      </div>`}
+      <div class="card">
+        <h3>Full review — every question (${total})</h3>
+        ${reviewHtml}
+      </div>
+    `;
+  }
 
   const missedSummary = state.questions
     .map((q,i)=>({q,a:state.answers[i]}))
@@ -4870,7 +5026,13 @@ function showResults(){
     missed_concepts: missedSummary,
     total_time_seconds: totalTimeSeconds
   };
-  saveResultToSupabase(record, state.questions, state.answers);
+  // showResults() can run twice for the same completed diagnostic (once
+  // right after finishing as a guest, again if they sign up right there
+  // on the gated results screen — see applySession()) — only save once.
+  if(!state.resultsSaved){
+    state.resultsSaved = true;
+    saveResultToSupabase(record, state.questions, state.answers);
+  }
 }
 
 /* ---------- Init ---------- */
