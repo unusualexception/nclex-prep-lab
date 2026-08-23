@@ -298,6 +298,16 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
   .perf-row{display:flex;align-items:center;gap:8px;margin-bottom:7px;font-size:12px;}
   .perf-bar{flex:1;height:7px;background:var(--paper);border-radius:4px;overflow:hidden;}
   .perf-bar i{display:block;height:100%;background:var(--teal-600);}
+  .faq-q{border:1px solid var(--line);border-radius:10px;margin-bottom:8px;background:var(--panel);}
+  .faq-q summary{cursor:pointer;list-style:none;padding:12px 14px;font-size:13.5px;font-weight:600;display:flex;justify-content:space-between;gap:12px;align-items:center;}
+  .faq-q summary::-webkit-details-marker{display:none;}
+  .faq-q summary .fq-arrow{color:var(--ink-soft);font-size:11px;transition:.15s;flex-shrink:0;}
+  .faq-q[open] summary .fq-arrow{transform:rotate(90deg);}
+  .faq-q .fq-body{padding:0 14px 13px;font-size:13px;line-height:1.7;color:var(--ink-soft);}
+  .faq-q .fq-body p{margin:0 0 8px;}
+  .faq-group-title{font-family:'IBM Plex Mono',monospace;font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-soft);margin:20px 0 8px;}
+  .faq-draft{background:var(--gold-100);color:var(--gold);border-radius:8px;padding:9px 12px;font-size:12px;margin-bottom:16px;}
+  .faq-draft-inline{background:var(--gold-100);color:var(--gold);border-radius:6px;padding:6px 9px;font-family:'IBM Plex Mono',monospace;font-size:11.5px;display:inline-block;}
   .rail-btn.rail-btn-adaptive{border-color:var(--blue);background:var(--blue);color:#fff;}
   .rail-btn.rail-btn-adaptive .mono{color:#fff;}
   .rail-btn.rail-btn-adaptive:hover{border-color:var(--blue);filter:brightness(1.12);}
@@ -518,6 +528,7 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
     </div>
     <button class="btn create-test-btn" onclick="startFreeMockTest()">⭐ Free Diagnostic Test<span id="freeMockTopBadge"></span></button>
     <div class="topbar-right">
+      <button class="topbar-help-btn" onclick="goFaq()">FAQ</button>
       <button class="topbar-help-btn" onclick="openIssueModal()">Report Issue</button>
       <button class="topbar-help-btn" onclick="openContactModal()">Contact Us</button>
       <div class="session-score mono" id="sessionScore">0 / 0 correct this session</div>
@@ -1317,13 +1328,95 @@ async function renderAcctPerformance(){
   }
 }
 
+
+/* ---------- Analytics: six events, five rates ----------
+   landing_view → diagnostic_start → diagnostic_complete → signup
+   → checkout_view → purchase
+   Deliberately not extensible. If a seventh event feels necessary, the
+   question to answer first is which decision it would change. */
+const ANALYTICS_EVENTS = ["landing_view","diagnostic_start","diagnostic_complete",
+                          "signup","checkout_view","purchase"];
+
+/* anon_id survives until signup, when analytics_identify() stitches every
+   prior event to the user. Without it a purchase cannot be traced back to the
+   landing that produced it, which is the entire point of the funnel. */
+function anonId(){
+  try{
+    let a = localStorage.getItem("nx_anon");
+    if(!a){ a = "a_" + Math.random().toString(36).slice(2) + Date.now().toString(36);
+            localStorage.setItem("nx_anon", a); }
+    return a;
+  }catch(e){ return "a_nostore"; }
+}
+
+/* First-touch attribution, captured once and never overwritten. Last-touch
+   would credit the channel that closed rather than the one that found them. */
+function firstTouch(){
+  try{
+    const saved = localStorage.getItem("nx_src");
+    if(saved) return JSON.parse(saved);
+    const u = new URLSearchParams(location.search);
+    const t = {
+      source:       u.get("source") || u.get("utm_source") || null,
+      utm_medium:   u.get("utm_medium") || null,
+      utm_campaign: u.get("utm_campaign") || null,
+      referrer:     document.referrer ? document.referrer.slice(0,300) : null
+    };
+    localStorage.setItem("nx_src", JSON.stringify(t));
+    return t;
+  }catch(e){ return {source:null,utm_medium:null,utm_campaign:null,referrer:null}; }
+}
+
+async function track(event){
+  if(!ANALYTICS_EVENTS.includes(event)){
+    console.warn("Unknown analytics event ignored:", event); return;
+  }
+  if(!sbClient) return;
+  const t = firstTouch();
+  try{
+    await sbClient.from("analytics_events").insert({
+      anon_id: anonId(),
+      user_id: (authState.user && authState.user.id) || null,
+      event, source: t.source, utm_medium: t.utm_medium,
+      utm_campaign: t.utm_campaign, referrer: t.referrer
+    });
+  }catch(e){ /* analytics must never break the app */ }
+}
+
+/* Call once at signup, after the user row exists. */
+
+/* purchase is fired SERVER-SIDE from the payment webhook, not here.
+   A client-fired purchase event is lost whenever the user closes the tab on the
+   provider's success page, and can be forged by anyone with the console open.
+   The webhook that calls grant_access() should also insert:
+     insert into analytics_events(anon_id, user_id, event, source)
+     select p.anon_id, p.id, 'purchase', p.source from profiles p where p.id = <user>;
+   That is why there is no track("purchase") in this file. */
+async function analyticsIdentify(userId){
+  if(!sbClient || !userId) return;
+  try{ await sbClient.rpc("analytics_identify", { p_user:userId, p_anon:anonId() }); }
+  catch(e){ console.warn("analytics_identify failed:", e); }
+}
+
+// fire the first event as soon as the page is usable
+if(typeof window !== "undefined"){
+  window.addEventListener("load", ()=>{ firstTouch(); track("landing_view"); });
+}
+
 function renderAccountWidget(){
   const el = document.getElementById("accountWidget");
   if(!el) return;
   if(authState.user){
+    /* "QUARTERLY — ACTIVE" described a recurring plan that no longer exists,
+       and a billing-cycle name tells the user nothing they need. Under one-off
+       purchases the only fact that matters is how much time is left, so the
+       label states membership level and counts down. */
+    const _until = (authState.profile||{}).access_until || (authState.profile||{}).subscription_expires_at;
+    const _days  = _until ? Math.ceil((new Date(_until) - Date.now())/86400000) : 0;
     const tierLabel = hasActiveSubscription()
-      ? (authState.profile.subscription_tier.toUpperCase()+" — ACTIVE")
-      : "FREE ACCOUNT";
+      ? `PREMIUM MEMBER · ${_days} DAY${_days===1?"":"S"} LEFT`
+      : "FREE MEMBER";
+    const tierWarn = hasActiveSubscription() && _days <= 14;
     /* Collapsed by default. Four links sitting permanently in the sidebar is
        fine at four; it does not survive adding subscription, profile, password
        and performance. A single trigger that opens a menu is the standard
@@ -1331,7 +1424,7 @@ function renderAccountWidget(){
     el.innerHTML = `
       <div class="acct-wrap" id="acctWrap">
         <button class="acct-trigger" onclick="toggleAccountMenu(event)" aria-haspopup="true" aria-expanded="false">
-          <div class="who"><b>${authState.user.name}</b><span>${tierLabel}</span></div>
+          <div class="who"><b>${authState.user.name}</b><span${tierWarn?' style="color:var(--gold);font-weight:600;"':''}>${tierLabel}</span></div>
           <span class="acct-caret">&#9660;</span>
         </button>
         <div class="acct-menu" role="menu">
@@ -1349,7 +1442,7 @@ function renderAccountWidget(){
   } else {
     el.innerHTML = `
       <div class="account-pill">
-        <div class="who"><b>Guest</b><span>LOG IN TO START A TEST</span></div>
+        <div class="who"><b>Guest</b><span>GUEST &middot; LOG IN TO START</span></div>
       </div>
       <button class="account-btn" onclick="openAuthModal('signin')">Log in / Sign up</button>`;
   }
@@ -1405,6 +1498,18 @@ async function handleAuthSubmit(evt){
         } }
       });
       if(error) throw error;
+      /* Fire signup and stitch the anonymous history to the new user. Without
+         the stitch, a purchase cannot be traced back to the landing that
+         produced it, and every source attribution reads "(none)". */
+      track("signup");
+      if(data.user){
+        analyticsIdentify(data.user.id);
+        if(examDate){
+          sbClient.from("profiles")
+            .update({ test_date: examDate })
+            .eq("id", data.user.id).then(()=>{}, ()=>{});
+        }
+      }
       if(data.session){
         closeAuthModal();
       } else {
@@ -3680,6 +3785,86 @@ async function loadPerformanceByCategory(){
 }
 
 /* ---------- Views ---------- */
+
+/* ---------- FAQ ----------
+   Placeholder copy. Everything below is a draft written to establish the
+   structure and tone; the answers about pass rates, refunds and support times
+   in particular are commitments and need signing off before launch. */
+const FAQ_CONTENT = [
+  { group:"Getting started", items:[
+    { q:"What is included with free access?",
+      a:"<p>A free account includes the 25-question diagnostic assessment and your results breakdown by section. Full-length tests, hard tests, the adaptive exam and the custom test builder need paid access.</p>" },
+    { q:"How many questions are in the bank?",
+      a:"<p>Around 4,800 stand-alone questions plus 95 unfolding case studies (a further 570 linked items). That includes every NGN format: matrix, cloze, hot spot, drag-and-drop ordering, bow-tie and trend items.</p>" },
+    { q:"Do I need to finish a test in one sitting?",
+      a:"<p>Practice tests can be left and resumed. The adaptive exam runs on a continuous five-hour clock that does not pause, so it is best started when you have the time free.</p>" }
+  ]},
+  { group:"How the tests work", items:[
+    { q:"Why did my adaptive exam stop at 85 questions?",
+      a:"<p>Because there was enough evidence to reach a decision. The exam ends as soon as the result is clear in either direction, so a short exam happens for clear passes and clear fails alike.</p><p><strong>Where it stops tells you nothing about whether you passed.</strong> Reaching the 150-question maximum simply means the result stayed close to the line.</p>" },
+    { q:"Why can I not see the answer straight away in some modes?",
+      a:"<p>Learning Mode shows the answer and rationale immediately. Exam Mode and the adaptive exam hold everything until the end, because seeing your result mid-exam tells you which way the difficulty is moving — the one signal the real NCLEX is designed to withhold.</p>" },
+    { q:"How is partial credit awarded?",
+      a:"<p>The same way the NCLEX does it. SATA, matrix and hot spot items give credit per correct selection; ordered-response and bow-tie items are all-or-nothing; single-response items are right or wrong.</p>" },
+    { q:"Do questions repeat between tests?",
+      a:"<p>No. The 20 full-length tests and 7 hard tests draw from mutually exclusive pools, so no question appears in more than one. The adaptive exam avoids anything you have already seen in any mode.</p>" }
+  ]},
+  { group:"Scores and readiness", items:[
+    { q:"Does a good score here mean I will pass the NCLEX?",
+      a:"<p><strong>No, and we will not claim otherwise.</strong> Difficulty in this bank is estimated from the structure of each question, not calibrated against how thousands of real candidates performed. Results here describe how you did on this material. They are not a probability of passing.</p>" },
+    { q:"Why does the adaptive exam not give me a percentage?",
+      a:"<p>Because the NCLEX does not produce one. It reports pass or fail against an ability standard. A percentage on a variable-length exam would also be misleading, since the maximum depends on where the exam happened to stop.</p>" },
+    { q:"What does the performance breakdown tell me?",
+      a:"<p>Which sections you answer well and which you do not, across every answer you have recorded — including from sessions you did not finish. It is descriptive, not predictive.</p>" }
+  ]},
+  { group:"Payment and access", items:[
+    { q:"Is this a subscription?",
+      a:"<p>No. Access is bought as a one-off block of 1, 3 or 6 months. <strong>Nothing renews automatically and there is nothing to cancel</strong> — access simply ends on your expiry date unless you add more time.</p>" },
+    { q:"What happens if I buy more time before my access ends?",
+      a:"<p>It is added to what you already have. Buying 3 months when you have 20 days left gives you 20 days plus 3 months, not 3 months from today.</p>" },
+    { q:"Which payment methods do you accept?",
+      a:"<p>Card payments and PayPal.</p>" },
+    { q:"Can I get a refund?",
+      a:"<p class='faq-draft-inline'>DRAFT — refund terms need to be agreed before launch.</p>" }
+  ]},
+  { group:"Account and support", items:[
+    { q:"How do I change my password or name?",
+      a:"<p>Open the menu on your name in the top right, then Update profile or Manage password.</p>" },
+    { q:"I found a question I think is wrong. What should I do?",
+      a:"<p>Use Report Issue in the top bar while the question is on screen. Tell us the question and what you think is wrong — this genuinely helps, and flagged items get reviewed.</p>" },
+    { q:"How quickly do you reply to support requests?",
+      a:"<p class='faq-draft-inline'>DRAFT — response-time commitment to be confirmed.</p>" }
+  ]}
+];
+
+function goFaq(){
+  state.view = "faq";
+  stopQuizTimer();
+  renderRail();
+  document.getElementById("main").innerHTML = `
+    <div class="hero" style="margin-bottom:18px;">
+      <h1 style="margin-bottom:6px;">Frequently asked questions</h1>
+      <p style="margin:0;">If your question is not here, use Contact Us in the top bar.</p>
+    </div>
+    <div class="faq-draft">
+      <strong>Draft content.</strong> These answers are placeholders to establish structure.
+      Anything about refunds, support times or pass rates is a commitment and needs signing off before launch.
+    </div>
+    ${FAQ_CONTENT.map(g=>`
+      <div class="faq-group-title">${g.group}</div>
+      ${g.items.map(it=>`
+        <details class="faq-q">
+          <summary>${it.q}<span class="fq-arrow">&#9654;</span></summary>
+          <div class="fq-body">${it.a}</div>
+        </details>`).join("")}
+    `).join("")}
+    <div style="margin-top:26px;display:flex;gap:10px;flex-wrap:wrap;">
+      <button class="btn secondary" onclick="goHome()">&lsaquo; Back to dashboard</button>
+      <button class="btn secondary" onclick="openContactModal()">Contact us</button>
+    </div>`;
+  scrollQuizToTop();
+}
+
 async function goHome(){
   stopQuizTimer();
   state.view="home"; state.quizKey=null; state.quizType=null;
@@ -4075,6 +4260,7 @@ function actuallyStartHardTest(n){
 }
 
 function actuallyStartFreeMockTest(){
+  track("diagnostic_start");
   const qs = buildFreeMockTest();
   state.view="quiz"; state.quizKey="freemock"; state.quizType="freemock"; state.quizTitle="Free Diagnostic Test";
   state.testNumberForRetake = null;
@@ -5909,6 +6095,7 @@ function showResults(){
     renderRail();
   } else if(state.quizType==="freemock"){
     state.freeMockTestProgress = {status:"done", score:pct};
+    track("diagnostic_complete");
     renderRail();
   } else if(state.quizType==="adaptive"){
     state.adaptiveProgress = {status:"done", items: total, decision: (state.cat && state.cat.decision) || null};
@@ -6313,6 +6500,7 @@ async function loadPricing(forceRefresh){
   return pricingCache;
 }
 async function openUpgradeModal(){
+  track("checkout_view");
   const loggedIn = !!authState.user;
   document.getElementById("upgradeLoginBanner").style.display = loggedIn ? "none" : "block";
   document.getElementById("upgradePromoSection").style.display = loggedIn ? "block" : "none";
