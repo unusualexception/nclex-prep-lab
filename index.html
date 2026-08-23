@@ -4138,7 +4138,7 @@ function renderQuestion(){
       ${isSata ? `<div class="submit-row"><button class="btn" onclick="submitSata()">${answerBtnLabel()}</button></div>` : ""}
     `}
     <div class="nav-row" style="margin-top:2px;">
-      <button class="link-btn" style="color:var(--ink-soft);" onclick="skipQuestion()">Skip this question (scores 0) →</button>
+      <button class="link-btn" id="skipQuestionBtn" style="color:var(--ink-soft);" onclick="skipQuestion()">Skip this question (scores 0) →</button>
     </div>
     <div id="feedbackZone"></div>
   `;
@@ -4770,14 +4770,28 @@ function finishTestNow(){
       !confirm(`Finish now? The remaining ${remaining} question${remaining>1?"s":""} will be marked as skipped (0 points each).`)){
     return;
   }
-  if(state.quizType!=="adaptive"){
-    for(let i=state.answers.length; i<state.questions.length; i++){
-      const q = state.questions[i];
-      state.answers.push({qId:q.id, status:"skipped", selected:null, subtopic:q.subtopic, concept:q.explain.concept, category:q.category, timeSpentSeconds:0});
+  if(state.quizType==="adaptive"){
+    /* Ending by hand can never produce a decision, and that is a property of
+       the algorithm rather than a policy choice: the exam only keeps going
+       while the 95% interval still straddles the passing standard. If there
+       had been enough evidence either way at this point, it would already
+       have stopped itself. So a forced end is inconclusive by definition. */
+    const cat = state.cat;
+    if(cat){
+      cat.stopped = true;
+      cat.stopReason = cat.responses.length < CAT_MIN_ITEMS ? "ended_below_minimum" : "ended_early";
+      cat.decision = "incomplete";
     }
-    state.sessionTotal += remaining;
-    renderSessionScore();
+    stopQuizTimer();
+    showAdaptiveShutoff();
+    return;
   }
+  for(let i=state.answers.length; i<state.questions.length; i++){
+    const q = state.questions[i];
+    state.answers.push({qId:q.id, status:"skipped", selected:null, subtopic:q.subtopic, concept:q.explain.concept, category:q.category, timeSpentSeconds:0});
+  }
+  state.sessionTotal += remaining;
+  renderSessionScore();
   showResults();
 }
 
@@ -4793,7 +4807,7 @@ function renderDeferredFeedback(){
 }
 
 function recordAnswer(q, status, selected, points){
-  setTimeout(refreshQuizProgress, 0);   // after state.answers has been appended below
+  setTimeout(()=>{ refreshQuizProgress(); lockQuestionControls(); }, 0);   // after state.answers has been appended below
   const timeSpentSeconds = state.questionStartTime ? Math.round((Date.now()-state.questionStartTime)/1000) : null;
   if(points===undefined){
     // Real NCLEX 0/1 scoring for standard single-response items (traditional
@@ -4921,6 +4935,22 @@ function adaptiveProgressPct(){
      end. A bar that only ever moves forward is worth more than one that fills
      faster early. The exact position is carried by the answered count anyway. */
   return (state.answers.length / CAT_MAX_ITEMS) * 100;
+}
+/* Once an answer is recorded the question is finished: skipping would mean
+   replacing a real response with a zero. skipQuestion() already refuses to run
+   when state.locked, so nothing can be overwritten - but leaving the control
+   looking live means a candidate clicks it, sees nothing happen, and cannot
+   tell whether the skip registered or the exam has frozen. */
+function lockQuestionControls(){
+  const skip = document.getElementById("skipQuestionBtn");
+  if(skip){
+    skip.disabled = true;
+    skip.style.opacity = ".4";
+    skip.style.cursor = "default";
+    skip.style.textDecoration = "none";
+    skip.title = "This question has already been answered.";
+  }
+  document.querySelectorAll(".submit-row .btn").forEach(b => { b.disabled = true; });
 }
 function refreshQuizProgress(){
   const cnt = document.getElementById("quizAnsweredCount");
@@ -5080,7 +5110,11 @@ function showAdaptiveShutoff(){
       ? "The exam reached its maximum length of " + CAT_MAX_ITEMS + " questions."
     : cat.stopReason === "run_out_of_time"
       ? "The five-hour limit was reached."
-    : "The exam ended early.";
+    : cat.stopReason === "ended_below_minimum"
+      ? "You ended the exam before the minimum of " + CAT_MIN_ITEMS + " questions."
+    : cat.stopReason === "ended_early"
+      ? "You ended the exam by hand."
+    : "The exam ended.";
 
   if(sbClient && authState.user && state.catSessionId){
     sbClient.from("cat_sessions").update({
@@ -5291,12 +5325,20 @@ function generateSummaryCommentary(byCat, total, correct, skippedCount, answered
 function showResults(){
   stopQuizTimer();
   state.view="results";
-  const total = state.questions.length;
+  /* For adaptive the questions array holds whatever was appended, which can
+     exceed what the candidate actually answered. Count the answers. */
+  const total = state.quizType==="adaptive" ? state.answers.length : state.questions.length;
   const correct = state.answers.filter(a=>a.status==="correct").length;
   const partial = state.answers.filter(a=>a.status==="partial").length;
   const incorrect = state.answers.filter(a=>a.status==="incorrect").length;
   const skipped = state.answers.filter(a=>a.status==="skipped").length;
-  const pct = total ? Math.round((correct/total)*100) : 0;
+  /* Score as a share of points EARNED, not a count of flawless items. Counting
+     only fully-correct answers means every partial-credit item scores zero
+     toward the headline figure, which contradicts the partial credit awarded
+     on the item itself and understates performance - a session of 2 correct
+     and 2 partials reads 50% when 71% of the available points were earned. */
+  const earnedPts = state.answers.reduce((sum,a)=>sum+(typeof a.points==="number"?a.points:0), 0);
+  const pct = total ? Math.round((earnedPts/(total*2))*100) : 0;
   const totalTimeSeconds = state.testStartTime ? Math.round((Date.now()-state.testStartTime)/1000) : null;
 
   // Weighted scoring sums each answer's actual points earned. Single-select
@@ -5307,6 +5349,62 @@ function showResults(){
   // test naturally reflects whichever rule applied to each question.
   const weightedScore = Math.round(state.answers.reduce((sum,a)=>sum+(typeof a.points==="number"?a.points:0), 0) * 10) / 10;
   const weightedMax = total*2;
+
+  /* The old line advertised "+2 correct, 0 incorrect/skipped" as though that
+     were the NCLEX rule. It is not - the NCLEX awards no points at all and
+     reports pass/fail against an ability estimate. The 2-point scale here is
+     an internal weighting used so partial-credit items can be summed against
+     all-or-nothing ones; it should be described as ours, not theirs. */
+  const scoringNote = state.quizType==="adaptive"
+    ? "The NCLEX reports no score — only pass or fail against an ability standard. Item counts below are for your review."
+    : "Partial credit applies where the NCLEX allows it (SATA, matrix, cloze, hot spot). Single-response, calculation and ordered-response items are all-or-nothing.";
+
+  /* Adaptive shows no points hero: a points total out of a maximum is exactly
+     the framing the real exam does not use, and on a variable-length exam the
+     maximum is an artefact of when it happened to stop. */
+  const heroHtml = state.quizType==="adaptive"
+    ? `<div class="score-hero"><span class="score-big">${total}</span><span class="score-sub">questions answered — ${state.quizTitle}</span></div>`
+    : `<div class="score-hero"><span class="score-big" style="color:${weightedScore>=weightedMax*0.7?'var(--correct)':weightedScore>=weightedMax*0.5?'var(--gold)':'var(--incorrect)'}">${weightedScore}</span><span class="score-sub">of ${weightedMax} pts — ${state.quizTitle}</span></div>`;
+
+  /* Adaptive verdict block. An inconclusive outcome is stated as inconclusive
+     rather than dressed up as a near-miss: the exam runs precisely while the
+     answer is unclear, so stopping it by hand guarantees the interval still
+     crossed the standard. The ability estimate is shown because it is a fact
+     about the responses given, but it is explicitly not a decision. */
+  const catVerdictHtml = (state.quizType==="adaptive" && state.cat) ? (()=>{
+    const c = state.cat;
+    const lo = (c.theta - CAT_CONF_Z*c.se), hi = (c.theta + CAT_CONF_Z*c.se);
+    if(c.decision === "pass" || c.decision === "fail"){
+      const passed = c.decision === "pass";
+      return `
+      <div style="border:1px solid var(--line);border-left:4px solid ${passed?'var(--correct)':'var(--incorrect)'};border-radius:10px;padding:16px 18px;margin:0 0 18px;">
+        <div style="font-size:12px;letter-spacing:.1em;color:var(--ink-soft);">RESULT</div>
+        <div style="font-size:20px;font-weight:700;margin:4px 0 8px;color:${passed?'var(--correct)':'var(--incorrect)'};">
+          ${passed ? "Above the passing standard" : "Below the passing standard"}
+        </div>
+        <p style="margin:0;font-size:12.8px;line-height:1.65;color:var(--ink-soft);">
+          Reached after ${total} questions, with 95% confidence. This is a practice
+          estimate from this bank, not a prediction of your NCLEX result.
+        </p>
+      </div>`;
+    }
+    const belowMin = c.stopReason === "ended_below_minimum";
+    return `
+      <div style="border:1px solid var(--line);border-left:4px solid var(--gold);border-radius:10px;padding:16px 18px;margin:0 0 18px;">
+        <div style="font-size:12px;letter-spacing:.1em;color:var(--ink-soft);">RESULT</div>
+        <div style="font-size:20px;font-weight:700;margin:4px 0 8px;color:var(--gold);">Inconclusive — no decision</div>
+        <p style="margin:0 0 10px;font-size:12.8px;line-height:1.65;color:var(--ink-soft);">
+          ${belowMin
+            ? `You ended at ${total} questions, below the ${CAT_MIN_ITEMS}-question minimum. There is not enough evidence to place you on either side of the standard.`
+            : `You ended at ${total} questions, and at that point the exam had not reached a conclusion. That is not a technicality: an adaptive exam <strong>only keeps going while the result is still unclear</strong>. Had there been enough evidence either way at question ${total}, it would have stopped on its own.`}
+        </p>
+        <p style="margin:0;font-size:12px;line-height:1.6;color:var(--ink-soft);opacity:.85;">
+          For what it is worth, your ability estimate sat at ${c.theta.toFixed(2)} logits with a 95% range of
+          ${lo.toFixed(2)} to ${hi.toFixed(2)} — a range that still crossed the passing standard of 0.00.
+          Treat that as a rough position, not a verdict.
+        </p>
+      </div>`;
+  })() : "";
 
   if(state.quizType==="full"){
     state.testProgress[state.testNumberForRetake] = {status:"done", score:pct};
@@ -5532,8 +5630,10 @@ function showResults(){
   } else {
     document.getElementById("main").innerHTML = `
       <div class="card">
-        <div class="score-hero"><span class="score-big" style="color:${weightedScore>=weightedMax*0.7?'var(--correct)':weightedScore>=weightedMax*0.5?'var(--gold)':'var(--incorrect)'}">${weightedScore}</span><span class="score-sub">of ${weightedMax} pts — ${state.quizTitle}</span></div>
-        <p class="mono" style="font-size:13px;color:var(--ink-soft);margin:2px 0 0;">${correct} correct · ${incorrect} incorrect · ${skipped} skipped &nbsp;(${pct}% accuracy) &nbsp;·&nbsp; scoring: +2 correct, 0 incorrect/skipped, SATA partial credit per +/- rule</p>
+        ${catVerdictHtml}
+        ${heroHtml}
+        <p class="mono" style="font-size:13px;color:var(--ink-soft);margin:2px 0 0;">${correct} fully correct${partial ? ` · ${partial} partial credit` : ""} · ${incorrect} incorrect${skipped ? ` · ${skipped} skipped` : ""} &nbsp;(${total} answered)</p>
+        <p class="mono" style="font-size:11.5px;color:var(--ink-soft);opacity:.8;margin:4px 0 0;">${scoringNote}</p>
         ${totalTimeSeconds!==null ? `<p class="mono" style="font-size:12px;color:var(--ink-soft);margin:2px 0 0;">Completed in ${formatHMS(totalTimeSeconds)}</p>` : ""}
         <div id="saveStatus"><span class="save-status off">Saving...</span></div>
         <div class="cta-row">
