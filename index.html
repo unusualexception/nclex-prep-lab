@@ -4234,7 +4234,7 @@ function submitSata(){
       const isCorrectKey = q.correct.includes(k);
       const wasChosen = chosen.includes(k);
       if(mayRevealAnswer() && isCorrectKey && wasChosen) btn.classList.add("correct");
-      else if(isCorrectKey && !wasChosen) btn.classList.add("missed");
+      else if(mayRevealAnswer() && isCorrectKey && !wasChosen) btn.classList.add("missed");
       else if(mayRevealAnswer() && !isCorrectKey && wasChosen) btn.classList.add("incorrect");
     });
     renderFeedback(q, status, sataDetail);
@@ -4417,12 +4417,17 @@ function submitMatrixAnswer(){
   state.answers[state.answers.length-1].matrixDetail = matrixDetail;
   document.querySelectorAll(".matrix-cell input").forEach(inp=>{
     inp.disabled = true;
-    const rIdx = parseInt(inp.dataset.row), colIdx = parseInt(inp.dataset.col);
+    /* data-row is the DISPLAY position; rows are shuffled at render, so it
+       must be mapped back through matrixRowOrder before reading row.correct.
+       Without this the reveal marks the diagonal rather than the real key. */
+    const dIdx = parseInt(inp.dataset.row), colIdx = parseInt(inp.dataset.col);
+    const rowOrder = state.matrixRowOrder || q.matrixRows.map((_,i)=>i);
+    const rIdx = rowOrder[dIdx];
     const col = q.matrixColumns[colIdx], row = q.matrixRows[rIdx];
     const isCorrectCell = isChoice ? (col===row.correct) : row.correct.includes(col);
     const wasChecked = inp.checked;
     if(mayRevealAnswer() && isCorrectCell && wasChecked) inp.closest("td").classList.add("matrix-correct");
-    else if(isCorrectCell && !wasChecked) inp.closest("td").classList.add("matrix-missed");
+    else if(mayRevealAnswer() && isCorrectCell && !wasChecked) inp.closest("td").classList.add("matrix-missed");
     else if(mayRevealAnswer() && !isCorrectCell && wasChecked) inp.closest("td").classList.add("matrix-incorrect");
   });
   const btn = document.getElementById("matrixSubmitBtn");
@@ -4508,7 +4513,7 @@ function submitHotspotAnswer(){
     const wasSelected = selectedForRecord.includes(segId);
     span.classList.remove("hotspot-selected");
     if(mayRevealAnswer() && isCorrectSeg && wasSelected) span.classList.add("hotspot-correct");
-    else if(isCorrectSeg && !wasSelected) span.classList.add("hotspot-missed");
+    else if(mayRevealAnswer() && isCorrectSeg && !wasSelected) span.classList.add("hotspot-missed");
     else if(mayRevealAnswer() && !isCorrectSeg && wasSelected) span.classList.add("hotspot-incorrect");
   });
   const btn = document.getElementById("hotspotSubmitBtn");
@@ -4699,7 +4704,7 @@ function submitBowtieAnswer(){
     const wasSelected = selectedForRecord.actions.includes(o.id);
     const isCorrectOpt = correctActions.has(o.id);
     if(mayRevealAnswer() && isCorrectOpt && wasSelected) wrap.classList.add("bowtie-correct");
-    else if(isCorrectOpt && !wasSelected) wrap.classList.add("bowtie-missed");
+    else if(mayRevealAnswer() && isCorrectOpt && !wasSelected) wrap.classList.add("bowtie-missed");
     else if(mayRevealAnswer() && !isCorrectOpt && wasSelected) wrap.classList.add("bowtie-incorrect");
   });
   q.bowtieConditions.forEach(o=>{
@@ -4709,7 +4714,7 @@ function submitBowtieAnswer(){
     const wasSelected = selectedForRecord.condition === o.id;
     const isCorrectOpt = o.id === q.correct.condition;
     if(mayRevealAnswer() && isCorrectOpt && wasSelected) wrap.classList.add("bowtie-correct");
-    else if(isCorrectOpt && !wasSelected) wrap.classList.add("bowtie-missed");
+    else if(mayRevealAnswer() && isCorrectOpt && !wasSelected) wrap.classList.add("bowtie-missed");
     else if(mayRevealAnswer() && !isCorrectOpt && wasSelected) wrap.classList.add("bowtie-incorrect");
   });
   q.bowtieParameters.forEach(o=>{
@@ -4719,7 +4724,7 @@ function submitBowtieAnswer(){
     const wasSelected = selectedForRecord.parameters.includes(o.id);
     const isCorrectOpt = correctParameters.has(o.id);
     if(mayRevealAnswer() && isCorrectOpt && wasSelected) wrap.classList.add("bowtie-correct");
-    else if(isCorrectOpt && !wasSelected) wrap.classList.add("bowtie-missed");
+    else if(mayRevealAnswer() && isCorrectOpt && !wasSelected) wrap.classList.add("bowtie-missed");
     else if(mayRevealAnswer() && !isCorrectOpt && wasSelected) wrap.classList.add("bowtie-incorrect");
   });
   const btn = document.getElementById("bowtieSubmitBtn");
