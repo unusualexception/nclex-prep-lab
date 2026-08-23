@@ -2647,6 +2647,7 @@ async function loadQuestionBank(){
           difficulty:r.difficulty || "medium",
           difficultyLevel: r.difficulty_level || 3,
           itemPool: r.item_pool || null,
+          difficultyRaw: (r.difficulty_raw !== null && r.difficulty_raw !== undefined) ? Number(r.difficulty_raw) : null,
           tolerance: r.tolerance, unit: r.unit,
           clozeText: r.cloze_text, clozeBlanks: r.cloze_blanks,
           matrixType: r.matrix_type, matrixColumns: r.matrix_columns, matrixRows: r.matrix_rows,
@@ -2760,6 +2761,9 @@ const state = {
   testStartTime:null,      // Date.now() when the current test began — drives Learning Mode count-up
   questionStartTime:null,  // Date.now() when the current question was first shown — per-question timing
   examDeadline:null,       // Date.now() + budget, for Exam Mode countdown; null in Learning Mode
+  examCapSec:null,         // Adaptive only: flat 5-hour cap, counted UPWARD. Reset in startQuizTimer()
+  cat:null,                // Adaptive only: live CAT engine state (theta, se, responses, trace)
+  catSessionId:null,       // Adaptive only: server-side cat_sessions row for resume/audit
   timerHandle:null         // setInterval reference for the visible HH:MM:SS clock
 };
 
@@ -2809,6 +2813,10 @@ function shuffle(arr){ return seededShuffle(arr, Math.floor(Math.random()*1e9));
    of pre-allocated pools in the database (questions.item_pool = "ft_01".."ft_NN").
    Raising this without allocating matching pools makes the extra tests fall
    back to seeded draws, which overlap each other. */
+/* The real NCLEX allows a flat 5 hours regardless of how many items a
+   candidate ends up seeing. Adaptive mirrors that exactly. */
+const ADAPTIVE_TIME_LIMIT_SEC = 5 * 60 * 60;
+
 const FULL_TEST_COUNT = 20;
 
 /* Number of Hard Tests offered; must match allocated pools "hard_01".."hard_NN". */
@@ -3063,7 +3071,22 @@ function buildFreeMockTest(){
    behind the difficulty values. As real usage accumulates in quiz_answers,
    difficulty_level could later be recalculated from actual pass rates per
    question, which would make this progressively closer to the real thing. */
-const ADAPTIVE_TEST_LENGTH = 85; // matches the real NCLEX-RN's published minimum exam length
+/* ---------- Adaptive (CAT) engine parameters ----------
+   These mirror the NCSBN rules exactly and the server-side functions in
+   public.cat_* one-for-one. The maths is duplicated here rather than called
+   over the network because item selection has to happen between two clicks;
+   three round trips per question would make the exam feel broken on a poor
+   connection. Every answer is still persisted, so the database stays the
+   source of truth for resume and for later recalibration. */
+const CAT_MIN_ITEMS   = 85;     // below this no decision can be made
+const CAT_MAX_ITEMS   = 150;    // maximum-length rule
+const CAT_PASS_LOGIT  = 0.00;   // NCLEX-RN passing standard
+const CAT_CONF_Z      = 1.96;   // 95% confidence rule
+const CAT_CASE_TARGET = 3;      // unfolding case studies, all before item 85
+
+/* Retained only so older saved state and the category-sequence helper keep
+   working; the exam no longer stops at this number. */
+const ADAPTIVE_TEST_LENGTH = CAT_MIN_ITEMS;
 
 function buildAdaptiveCategorySequence(length){
   const seed = Date.now() % 2147483647; // fresh sequence every attempt, not fixed like other tests
@@ -3727,14 +3750,40 @@ function actuallyStartAdaptiveTest(){
   state.adaptiveCategorySequence = buildAdaptiveCategorySequence(ADAPTIVE_TEST_LENGTH);
   state.adaptiveCurrentTier = 3;
   state.adaptiveTierHistory = [];
+  /* Live CAT state. theta starts at the passing standard (0.00) because that
+     is the least presumptuous starting point, and the first items are drawn
+     near it - which is also why the exam opens at mid difficulty. */
+  state.cat = {
+    responses: [],           // {b, x} per scored item, feeds the estimator
+    theta: 0, se: 1, method: "prior",
+    answeredByCat: {},
+    casesUsed: 0,
+    stopped: false, stopReason: null, decision: null,
+    trace: []                // theta/se after each item, for the report
+  };
   const first = pickAdaptiveQuestion(state.adaptiveCategorySequence[0], 3, new Set());
   state.view="quiz"; state.quizKey="adaptive"; state.quizType="adaptive"; state.quizTitle="Adaptive Practice";
   state.testNumberForRetake = null;
   state.questions = first ? [first] : []; state.index=0; state.answers=[]; state.locked=false; state.selectedSata=new Set();
   state.adaptiveProgress = {status:"progress"};
+  state.catSessionId = null;
+  openCatSession();
   renderRail();
   startQuizTimer();
   renderQuestion();
+}
+
+/* Opens the server-side session row. The exam starts immediately either way;
+   if this fails the exam still runs, it just is not resumable. */
+async function openCatSession(){
+  if(!sbClient || !authState.user) return;
+  try{
+    const { data, error } = await sbClient.from("cat_sessions")
+      .insert({ user_id: authState.user.id, clock_mode: "wall" })
+      .select("id").single();
+    if(error) throw error;
+    state.catSessionId = data.id;
+  }catch(e){ console.warn("Could not open CAT session (exam continues):", e); }
 }
 
 function actuallyStartCaseStudy(caseNumber){
@@ -3889,8 +3938,15 @@ async function startCustomTest(){
    per question — derived directly from the real NCLEX-RN's own parameters
    (a flat 5-hour/300-minute limit for a 150-question maximum-length exam:
    300 ÷ 150 = 2 min/question), scaled to however many questions this
-   particular test has. Hits zero → the test ends automatically, same as
-   the real exam would. */
+   particular test has. Hits zero → the test ends automatically.
+
+   ADAPTIVE is deliberately different. Its length is not known in advance
+   (85–150 items), so a per-question budget is meaningless — a candidate who
+   shuts off at 85 would have been handed a 2h50m clock while one who runs to
+   150 gets 5h, for the same exam. The real NCLEX gives everyone one flat
+   5-hour window regardless of how many items they end up seeing. So adaptive
+   counts UP from 00:00:00 against a fixed 5-hour cap and shows both numbers,
+   which is also what tells the candidate how much of the window is left. */
 function formatHMS(totalSeconds){
   const s = Math.max(0, Math.floor(totalSeconds));
   const h = Math.floor(s/3600);
@@ -3902,7 +3958,11 @@ function startQuizTimer(){
   stopQuizTimer();
   state.testStartTime = Date.now();
   state.questionStartTime = Date.now();
-  state.examDeadline = state.feedbackMode==="end" ? (Date.now() + state.questions.length*120*1000) : null;
+  /* Adaptive: one flat 5-hour window, counted upward. Every other timed mode
+     keeps the 2-minute-per-question budget counted downward. */
+  state.examCapSec = state.quizType==="adaptive" ? ADAPTIVE_TIME_LIMIT_SEC : null;
+  state.examDeadline = (state.feedbackMode==="end" && state.quizType!=="adaptive")
+      ? (Date.now() + state.questions.length*120*1000) : null;
   // showResults() can legitimately run twice for the same completed test
   // (once right after finishing, and again if a guest signs up on the
   // gated diagnostic results screen — see applySession()) — this guard
@@ -3916,7 +3976,19 @@ function stopQuizTimer(){
 }
 function updateQuizTimerDisplay(){
   const el = document.getElementById("quizTimerDisplay");
-  if(state.feedbackMode==="end" && state.examDeadline){
+  if(state.examCapSec && state.testStartTime){
+    // Adaptive: count up, show elapsed against the 5-hour cap.
+    const elapsedSec = (Date.now() - state.testStartTime)/1000;
+    const remainingSec = state.examCapSec - elapsedSec;
+    if(el){
+      el.textContent = formatHMS(elapsedSec) + " / " + formatHMS(state.examCapSec);
+      el.classList.toggle("urgent", remainingSec <= 900);   // last 15 minutes
+    }
+    if(remainingSec <= 0){
+      stopQuizTimer();
+      handleTimeUp();
+    }
+  } else if(state.feedbackMode==="end" && state.examDeadline){
     const remainingSec = (state.examDeadline - Date.now())/1000;
     if(el){
       el.textContent = formatHMS(remainingSec);
@@ -4002,7 +4074,17 @@ function renderQuestion(){
     <div class="quiz-header">
       <div class="quiz-header-left">
         <span class="quiz-title">${state.quizTitle}</span>
-        <span class="quiz-title">${isDedicatedCaseStudy ? `Item ${state.index+1} of ${state.questions.length} — ${q.subtopic}` : isEmbeddedCaseStudy ? `Question ${state.index+1} of ${state.questions.length} — Case Study: ${csTitle} (${q.subtopic})` : `Question ${state.index+1} of ${state.questions.length}`}</span>
+        <span class="quiz-title">${
+        state.quizType==="adaptive"
+          ? `Question ${state.index+1}${isEmbeddedCaseStudy ? ` — Case Study: ${csTitle} (${q.subtopic})` : ""}`
+          : isDedicatedCaseStudy ? `Item ${state.index+1} of ${state.questions.length} — ${q.subtopic}`
+          : isEmbeddedCaseStudy ? `Question ${state.index+1} of ${state.questions.length} — Case Study: ${csTitle} (${q.subtopic})`
+          : `Question ${state.index+1} of ${state.questions.length}`
+      }</span>${
+        state.quizType==="adaptive"
+          ? `<span class="quiz-title" style="font-weight:400;opacity:.7;font-size:11.5px;margin-left:8px;">answered ${state.answers.length} · minimum ${CAT_MIN_ITEMS}, maximum ${CAT_MAX_ITEMS}</span>`
+          : ""
+      }
       </div>
       <span class="quiz-timer mono" id="quizTimerDisplay">00:00:00</span>
     </div>
@@ -4025,22 +4107,22 @@ function renderQuestion(){
           ${q.unit ? `<span class="calc-unit mono">${q.unit}</span>` : ""}
         </div>
       </div>
-      <div class="submit-row"><button class="btn" id="calcSubmitBtn" onclick="submitCalcAnswer()">Check Answer</button></div>
+      <div class="submit-row"><button class="btn" id="calcSubmitBtn" onclick="submitCalcAnswer()">${answerBtnLabel()}</button></div>
     ` : isCloze ? `
       <div class="cloze-passage" id="clozePassage">${renderClozeContent(q)}</div>
-      <div class="submit-row"><button class="btn" id="clozeSubmitBtn" onclick="submitClozeAnswer()">Check Answer</button></div>
+      <div class="submit-row"><button class="btn" id="clozeSubmitBtn" onclick="submitClozeAnswer()">${answerBtnLabel()}</button></div>
     ` : isMatrix ? `
       <div class="matrix-wrap" id="matrixWrap">${renderMatrixContent(q)}</div>
-      <div class="submit-row"><button class="btn" id="matrixSubmitBtn" onclick="submitMatrixAnswer()">Check Answer</button></div>
+      <div class="submit-row"><button class="btn" id="matrixSubmitBtn" onclick="submitMatrixAnswer()">${answerBtnLabel()}</button></div>
     ` : isHotspot ? `
       <div class="hotspot-wrap" id="hotspotWrap">${renderHotspotContent(q)}</div>
-      <div class="submit-row"><button class="btn" id="hotspotSubmitBtn" onclick="submitHotspotAnswer()">Check Answer</button></div>
+      <div class="submit-row"><button class="btn" id="hotspotSubmitBtn" onclick="submitHotspotAnswer()">${answerBtnLabel()}</button></div>
     ` : isOrdered ? `
       <div class="ordered-wrap" id="orderedWrap">${renderOrderedContent(q)}</div>
-      <div class="submit-row"><button class="btn" id="orderedSubmitBtn" onclick="submitOrderedAnswer()">Check Answer</button></div>
+      <div class="submit-row"><button class="btn" id="orderedSubmitBtn" onclick="submitOrderedAnswer()">${answerBtnLabel()}</button></div>
     ` : isBowtie ? `
       <div class="bowtie-wrap" id="bowtieWrap">${renderBowtieContent(q)}</div>
-      <div class="submit-row"><button class="btn" id="bowtieSubmitBtn" onclick="submitBowtieAnswer()">Check Answer</button></div>
+      <div class="submit-row"><button class="btn" id="bowtieSubmitBtn" onclick="submitBowtieAnswer()">${answerBtnLabel()}</button></div>
     ` : `
       <div class="options" id="optionsWrap">
         ${q.options.map(o=>`
@@ -4048,7 +4130,7 @@ function renderQuestion(){
             <span class="key">${o.k}</span><span>${o.t}</span>
           </button>`).join("")}
       </div>
-      ${isSata ? `<div class="submit-row"><button class="btn" onclick="submitSata()">Check Answer</button></div>` : ""}
+      ${isSata ? `<div class="submit-row"><button class="btn" onclick="submitSata()">${answerBtnLabel()}</button></div>` : ""}
     `}
     <div class="nav-row" style="margin-top:2px;">
       <button class="link-btn" style="color:var(--ink-soft);" onclick="skipQuestion()">Skip this question (scores 0) →</button>
@@ -4648,20 +4730,28 @@ function skipQuestion(){
 }
 
 function navRow(isLast){
-  const remaining = effectiveTotalQuestions() - state.answers.length;
+  const remaining = remainingQuestionCount();
+  const endLabel = remaining === null
+    ? "End exam early"
+    : `Finish test now (${remaining} left → skipped)`;
   return `
     <div class="nav-row">
       <button class="btn secondary" onclick="goHome()">Exit to dashboard</button>
       <div style="display:flex;gap:8px;">
-        ${!isLast ? `<button class="btn secondary" style="border-color:var(--incorrect);color:var(--incorrect);" onclick="finishTestNow()">Finish test now (${remaining} left → skipped)</button>` : ""}
+        ${!isLast ? `<button class="btn secondary" style="border-color:var(--incorrect);color:var(--incorrect);" onclick="finishTestNow()">${endLabel}</button>` : ""}
         <button class="btn" onclick="nextQuestion()">${isLast? "See results →" : "Next question →"}</button>
       </div>
     </div>`;
 }
 
 function finishTestNow(){
-  const remaining = effectiveTotalQuestions() - state.answers.length;
-  if(remaining > 0 && !confirm(`Finish now? The remaining ${remaining} question${remaining>1?"s":""} will be marked as skipped (0 points each).`)) return;
+  const remaining = remainingQuestionCount();
+  if(remaining === null){
+    if(!confirm("End the exam now?\n\nAn adaptive exam needs a minimum number of answers before it can reach a decision. Ending early means no pass/fail result can be produced — you will see your answers and rationales, but not a decision.")) return;
+  } else if(remaining > 0 &&
+      !confirm(`Finish now? The remaining ${remaining} question${remaining>1?"s":""} will be marked as skipped (0 points each).`)){
+    return;
+  }
   if(state.quizType!=="adaptive"){
     for(let i=state.answers.length; i<state.questions.length; i++){
       const q = state.questions[i];
@@ -4777,26 +4867,293 @@ function renderFeedback(q, status, sataDetail, clozeDetail, matrixDetail, hotspo
 function effectiveTotalQuestions(){
   return state.quizType==="adaptive" ? ADAPTIVE_TEST_LENGTH : state.questions.length;
 }
+
+/* "Check Answer" is only truthful when the answer is actually revealed on
+   submission. In Exam Mode and Adaptive nothing is checked in front of the
+   candidate — the response is recorded and review comes at the end. */
+function answerBtnLabel(){
+  return state.feedbackMode === "end" ? "Submit Answer" : "Check Answer";
+}
+
+/* An adaptive exam has no known length until it stops (85-150 on the real
+   NCLEX), so a "N left" count is not merely cosmetic - it is a claim the
+   app cannot make. Returns null for adaptive so callers omit the count. */
+function remainingQuestionCount(){
+  if(state.quizType === "adaptive") return null;
+  return effectiveTotalQuestions() - state.answers.length;
+}
+
+/* ================= CAT engine =================================
+   Rasch (1PL). b comes from difficulty_raw, anchored so the passing standard
+   sits at 0.00 logits: b = (raw - 2.95) * 1.10. Falls back to difficulty_level
+   when raw is absent. Ability is MLE (Newton-Raphson) with an EAP fallback,
+   because MLE is undefined for an all-correct or all-incorrect string, which
+   is normal in the opening items. EAP is NOT used as the primary estimator:
+   its N(0,1) prior is centred on 0.00, which is also the passing standard, so
+   it shrinks every candidate toward the cut and makes results look more
+   borderline than they are.
+   ============================================================== */
+function catB(q){
+  if(q && typeof q.difficultyRaw === "number") return (q.difficultyRaw - 2.95) * 1.10;
+  const lvl = (q && q.difficultyLevel) || 3;
+  return (lvl - 3) * 0.75;
+}
+function catP(theta, b){
+  const p = 1/(1+Math.exp(-(theta-b)));
+  return Math.min(Math.max(p, 1e-9), 1-1e-9);
+}
+function catInfo(theta, b){ const p = catP(theta,b); return p*(1-p); }
+
+/* Score fraction: dichotomous items are 0/1; partial-credit items contribute
+   the proportion earned, which is how the server-side estimator treats them. */
+function catScoreFraction(ans){
+  if(!ans) return 0;
+  if(typeof ans.scoreFraction === "number") return Math.min(1, Math.max(0, ans.scoreFraction));
+  return ans.status === "correct" ? 1 : 0;
+}
+
+function catMLE(resp){
+  if(!resp.length) return {theta:0, se:1, method:"prior", converged:false};
+  const tot = resp.length;
+  const got = resp.reduce((a,r)=>a+r.x, 0);
+  if(got <= 1e-4 || got >= tot - 1e-4) return catEAP(resp);
+  let t = 0, den = 0;
+  for(let it=0; it<40; it++){
+    let num = 0; den = 0;
+    for(const r of resp){
+      const p = catP(t, r.b);
+      num += (r.x - p);
+      den += p*(1-p);
+    }
+    if(den <= 1e-9) break;
+    let step = num/den;
+    step = Math.max(-1, Math.min(1, step));       // damped
+    t = Math.max(-6, Math.min(6, t + step));
+    if(Math.abs(step) < 5e-4) break;
+  }
+  if(den <= 1e-9 || Math.abs(t) >= 5.999) return catEAP(resp);
+  return {theta:t, se:1/Math.sqrt(den), method:"mle", converged:true};
+}
+
+function catEAP(resp){
+  const LO=-4, HI=4, N=81, step=(HI-LO)/(N-1);
+  let w=0, wt=0, wt2=0;
+  for(let i=0;i<N;i++){
+    const t = LO + i*step;
+    let ll = 0;
+    for(const r of resp){
+      const p = catP(t, r.b);
+      ll += r.x*Math.log(p) + (1-r.x)*Math.log(1-p);
+    }
+    const post = Math.exp(ll) * Math.exp(-(t*t)/2);
+    w += post; wt += post*t; wt2 += post*t*t;
+  }
+  if(w === 0) return {theta:0, se:1, method:"eap", converged:false};
+  const mean = wt/w;
+  return {theta:mean, se:Math.sqrt(Math.max(0, wt2/w - mean*mean)), method:"eap", converged:true};
+}
+
+/* The three NCSBN stopping rules, in the order the real exam applies them. */
+function catStopCheck(st){
+  const n = st.responses.length;
+  const elapsed = state.testStartTime ? (Date.now()-state.testStartTime)/1000 : 0;
+  if(elapsed >= ADAPTIVE_TIME_LIMIT_SEC){
+    if(n < CAT_MIN_ITEMS) return {stop:true, reason:"run_out_of_time", decision:"fail"};
+    return {stop:true, reason:"run_out_of_time", decision: st.theta > CAT_PASS_LOGIT ? "pass":"fail"};
+  }
+  if(n < CAT_MIN_ITEMS) return {stop:false};
+  const lo = st.theta - CAT_CONF_Z*st.se, hi = st.theta + CAT_CONF_Z*st.se;
+  if(lo > CAT_PASS_LOGIT) return {stop:true, reason:"confidence", decision:"pass"};
+  if(hi < CAT_PASS_LOGIT) return {stop:true, reason:"confidence", decision:"fail"};
+  if(n >= CAT_MAX_ITEMS)  return {stop:true, reason:"max_length",
+                                  decision: st.theta > CAT_PASS_LOGIT ? "pass":"fail"};
+  return {stop:false};
+}
+
+/* Maximum Fisher information at the current ability, with a running
+   blueprint deficit and randomesque exposure control so two candidates of
+   equal ability do not receive an identical exam. */
+function catSelectNext(usedIds, theta, answeredByCat){
+  const n = Object.values(answeredByCat).reduce((a,b)=>a+b,0) + 1;
+  const scored = [];
+  for(const q of QUESTIONS){
+    if(usedIds.has(q.id)) continue;
+    const cat = CATEGORIES.find(c=>c.key===q.category);
+    if(!cat) continue;
+    const target = (cat.weight/100) * Math.max(n, CAT_MIN_ITEMS);
+    const gap    = target - (answeredByCat[q.category]||0);
+    scored.push({q, gap:Math.max(0,gap), inf:catInfo(theta, catB(q))});
+  }
+  if(!scored.length) return null;
+  scored.sort((a,b)=> (b.gap - a.gap) || (b.inf - a.inf));
+  const top = scored.slice(0, Math.min(8, scored.length));
+  return top[Math.floor(Math.random()*top.length)].q;
+}
+
+/* Three unfolding case studies, all delivered before item 85 so a
+   minimum-length exam still carries the full clinical-judgment component. */
+function catShouldInjectCase(st){
+  if(st.casesUsed >= CAT_CASE_TARGET) return false;
+  const n = st.responses.length;
+  const dueAt = [12, 34, 56][st.casesUsed];
+  return n >= dueAt && n + 6 <= CAT_MIN_ITEMS + 12;
+}
+
+
+/* Sudden shutoff. Deliberately says nothing about the outcome: on the real
+   exam the screen simply stops, and where it stops carries no information
+   about pass or fail. Results are released separately. */
+function showAdaptiveShutoff(){
+  const cat = state.cat;
+  const n = cat.responses.length;
+  const mins = state.testStartTime ? Math.round((Date.now()-state.testStartTime)/60000) : 0;
+  const why = cat.stopReason === "confidence"
+      ? "There was enough evidence to reach a decision with 95% confidence."
+    : cat.stopReason === "max_length"
+      ? "The exam reached its maximum length of " + CAT_MAX_ITEMS + " questions."
+    : cat.stopReason === "run_out_of_time"
+      ? "The five-hour limit was reached."
+    : "The exam ended early.";
+
+  if(sbClient && authState.user && state.catSessionId){
+    sbClient.from("cat_sessions").update({
+      status:"completed", stop_reason:cat.stopReason, decision:cat.decision,
+      items_scored:n, ended_at:new Date().toISOString(),
+      elapsed_sec: Math.round((Date.now()-state.testStartTime)/1000)
+    }).eq("id", state.catSessionId).then(()=>{}, e=>console.warn("CAT close failed:", e));
+  }
+
+  document.getElementById("quizArea").innerHTML = `
+    <div style="max-width:620px;margin:40px auto;text-align:center;">
+      <div style="font-size:13px;letter-spacing:.12em;color:var(--ink-soft);margin-bottom:10px;">EXAM ENDED</div>
+      <h2 style="margin:0 0 14px;font-size:22px;">Your exam has ended.</h2>
+      <p style="font-size:14px;line-height:1.7;color:var(--ink-soft);margin:0 0 18px;">
+        ${why}
+      </p>
+      <div style="display:flex;gap:14px;justify-content:center;margin:0 0 20px;">
+        <div style="border:1px solid var(--line);border-radius:10px;padding:12px 20px;">
+          <div style="font-size:22px;font-weight:700;">${n}</div>
+          <div style="font-size:11px;color:var(--ink-soft);">questions answered</div>
+        </div>
+        <div style="border:1px solid var(--line);border-radius:10px;padding:12px 20px;">
+          <div style="font-size:22px;font-weight:700;">${mins}</div>
+          <div style="font-size:11px;color:var(--ink-soft);">minutes taken</div>
+        </div>
+      </div>
+      <div style="border:1px solid var(--line);border-radius:10px;padding:14px 16px;text-align:left;margin-bottom:20px;">
+        <p style="margin:0;font-size:12.8px;line-height:1.65;color:var(--ink-soft);">
+          <strong>Stopping at ${n} questions does not tell you whether you passed.</strong>
+          The exam ends as soon as the result is clear in either direction, so a short exam
+          happens for clear passes and clear fails alike. Running to the maximum simply means
+          the result stayed close to the line.
+        </p>
+      </div>
+      <button class="btn" style="min-width:220px;" onclick="releaseAdaptiveResults()">Show my result and review</button>
+    </div>`;
+}
+
+function releaseAdaptiveResults(){
+  if(sbClient && authState.user && state.catSessionId){
+    sbClient.from("cat_sessions").update({results_released:true})
+      .eq("id", state.catSessionId).then(()=>{}, ()=>{});
+  }
+  showResults();
+}
+
 function nextQuestion(){
   if(state.quizType==="adaptive"){
-    const justAnswered = state.answers[state.index];
-    const justAnsweredTier = state.questions[state.index] ? (state.questions[state.index].difficultyLevel||3) : state.adaptiveCurrentTier;
-    state.adaptiveTierHistory.push({tier:justAnsweredTier, status: justAnswered ? justAnswered.status : "skipped"});
-    if(justAnswered && justAnswered.status==="correct"){
-      state.adaptiveCurrentTier = Math.min(5, state.adaptiveCurrentTier + 1);
-    } else {
-      state.adaptiveCurrentTier = Math.max(1, state.adaptiveCurrentTier - 1);
+    const cat = state.cat;
+    const justQ   = state.questions[state.index];
+    const justAns = state.answers[state.index];
+
+    /* 1. Record the response and re-estimate ability. */
+    if(justQ){
+      const b = catB(justQ);
+      cat.responses.push({b, x: catScoreFraction(justAns)});
+      cat.answeredByCat[justQ.category] = (cat.answeredByCat[justQ.category]||0) + 1;
+      const est = catMLE(cat.responses);
+      cat.theta = est.theta; cat.se = est.se; cat.method = est.method;
+      cat.trace.push({n:cat.responses.length, theta:est.theta, se:est.se,
+                      b, x:catScoreFraction(justAns)});
+      /* Kept so the existing difficulty-trace visual still renders. */
+      state.adaptiveTierHistory.push({tier: justQ.difficultyLevel||3,
+                                      status: justAns ? justAns.status : "skipped"});
+      state.adaptiveCurrentTier = Math.max(1, Math.min(5, Math.round(3 + cat.theta*1.2)));
+      persistCatAnswer(justQ, justAns, est);
     }
-    const nextIndex = state.index + 1;
-    if(nextIndex < ADAPTIVE_TEST_LENGTH){
-      const usedIds = new Set(state.questions.map(q=>q.id));
-      const nextCategory = state.adaptiveCategorySequence[nextIndex];
-      const nextQ = pickAdaptiveQuestion(nextCategory, state.adaptiveCurrentTier, usedIds);
-      if(nextQ) state.questions.push(nextQ);
+
+    /* 2. Apply the stopping rules. */
+    const verdict = catStopCheck(cat);
+    if(verdict.stop){
+      cat.stopped = true; cat.stopReason = verdict.reason; cat.decision = verdict.decision;
+      stopQuizTimer();
+      showAdaptiveShutoff();
+      return;
     }
+
+    /* 3. Otherwise select the next item at maximum information. */
+    const usedIds = new Set(state.questions.map(q=>q.id));
+    let nextQ = null;
+    if(catShouldInjectCase(cat)){
+      const csBlock = pickAdaptiveCaseBlock(usedIds);
+      if(csBlock && csBlock.length){
+        state.questions.push(...csBlock);
+        cat.casesUsed++;
+        state.index++;
+        renderQuestion();
+        return;
+      }
+    }
+    nextQ = catSelectNext(usedIds, cat.theta, cat.answeredByCat);
+    if(!nextQ){          // pool exhausted - stop rather than repeat an item
+      cat.stopped = true; cat.stopReason = "pool_exhausted";
+      cat.decision = cat.responses.length >= CAT_MIN_ITEMS
+        ? (cat.theta > CAT_PASS_LOGIT ? "pass":"fail") : "incomplete";
+      stopQuizTimer(); showAdaptiveShutoff(); return;
+    }
+    state.questions.push(nextQ);
   }
   state.index++;
   renderQuestion();
+}
+
+/* Pulls one unseen case study and returns its 6 items as a contiguous block. */
+function pickAdaptiveCaseBlock(usedIds){
+  const pool = CASE_STUDIES.filter(cs =>
+    !state.questions.some(q => q._csNumber === cs.case_number));
+  if(!pool.length) return null;
+  const cs = pool[Math.floor(Math.random()*pool.length)];
+  const blocks = buildCaseStudyBlocks([cs.case_number]);
+  return blocks && blocks.length ? blocks[0] : null;
+}
+
+/* Fire-and-forget persistence. The exam must never block on the network, so
+   a failure here is logged and swallowed; the in-memory engine carries on. */
+async function persistCatAnswer(q, ans, est){
+  if(!sbClient || !authState.user || !state.catSessionId) return;
+  try{
+    await sbClient.from("cat_session_items").insert({
+      session_id: state.catSessionId,
+      seq: state.cat.responses.length,
+      item_key: "Q:"+q.id,
+      category: q.category,
+      item_type: q.type,
+      b_logit: Number(catB(q).toFixed(3)),
+      score_fraction: catScoreFraction(ans),
+      is_correct: ans ? ans.status==="correct" : false,
+      theta_after: Number(est.theta.toFixed(3)),
+      se_after: Number(est.se.toFixed(3)),
+      answered_at: new Date().toISOString()
+    });
+    await sbClient.from("cat_sessions").update({
+      theta: Number(est.theta.toFixed(3)),
+      se: Number(est.se.toFixed(3)),
+      theta_method: est.method,
+      items_scored: state.cat.responses.length,
+      case_studies_used: state.cat.casesUsed,
+      last_activity_at: new Date().toISOString()
+    }).eq("id", state.catSessionId);
+  }catch(e){ console.warn("CAT persistence failed (exam continues):", e); }
 }
 
 /* Post-test summary — entirely rule-based, computed from the score/category/
