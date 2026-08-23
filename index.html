@@ -2587,6 +2587,7 @@ async function loadQuestionBank(){
           stem:r.stem, options:r.options, correct:r.correct, explain:r.explain,
           difficulty:r.difficulty || "medium",
           difficultyLevel: r.difficulty_level || 3,
+          itemPool: r.item_pool || null,
           tolerance: r.tolerance, unit: r.unit,
           clozeText: r.cloze_text, clozeBlanks: r.cloze_blanks,
           matrixType: r.matrix_type, matrixColumns: r.matrix_columns, matrixRows: r.matrix_rows,
@@ -2647,7 +2648,7 @@ async function loadQuestionShapes(){
 async function loadCaseStudyShapes(){
   if(sbClient){
     try{
-      const { data, error } = await sbClient.from("case_studies").select("case_number, title, category, setting").order("case_number", { ascending:true });
+      const { data, error } = await sbClient.from("case_studies").select("case_number, title, category, setting, item_pool").order("case_number", { ascending:true });
       if(error) throw error;
       return data || [];
     }catch(e){
@@ -2745,6 +2746,15 @@ function shuffle(arr){ return seededShuffle(arr, Math.floor(Math.random()*1e9));
    This app's CATEGORIES weights (18/13/9/9/9/16/12/14) already match the
    official target percentages exactly.
    ========================================================================= */
+/* How many numbered Full Length Tests the rail offers. Must match the number
+   of pre-allocated pools in the database (questions.item_pool = "ft_01".."ft_NN").
+   Raising this without allocating matching pools makes the extra tests fall
+   back to seeded draws, which overlap each other. */
+const FULL_TEST_COUNT = 20;
+
+/* Number of Hard Tests offered; must match allocated pools "hard_01".."hard_NN". */
+const HARD_TEST_COUNT = 7;
+
 const NGN_EXTENDED_SHARE = 0.10; // ~10% of total exam length is stand-alone extended-format
 function isNgnExtendedType(q){
   return q.type==="matrix" || q.type==="cloze" || q.type==="hotspot" || q.type==="ordered_response" || q.type==="bowtie" || !!(q.trendStages && q.trendStages.length);
@@ -2844,35 +2854,43 @@ function pickStandaloneWeightedSplit(targetTotal, csCountByCategory, seed, guara
 }
 
 function buildFullTest(testNumber){
-  const targetTotal = Math.min(105, QUESTIONS.length + 18); // realistic mid-range length; falls back gracefully if the bank is smaller
-  const seed = testNumber*7919 + 13;
+  const poolKey = "ft_" + String(testNumber).padStart(2,"0");
 
-  // Every real exam includes exactly 3 unfolding case studies (18 items),
-  // fixed regardless of exam length. Which 3 varies by test number so the
-  // numbered practice tests aren't all identical, but is deterministic per
-  // number so retaking "Full Length Test 4" gives the same test.
+  /* Each numbered Full Length Test is a FIXED, pre-allocated set held in the
+     database (questions.item_pool / case_studies.item_pool = "ft_01".."ft_20").
+     Those pools were built server-side to be mutually exclusive -- no question
+     appears in two different tests -- and to hit the NCLEX category blueprint
+     and NGN mix exactly. Selecting here rather than re-deriving from a seed is
+     what makes "no repetition across tests" actually true; a seeded draw from
+     the whole bank cannot guarantee it. */
+  const pooled = QUESTIONS.filter(q => q.itemPool === poolKey);
+  const pooledCases = CASE_STUDIES.filter(c => c.item_pool === poolKey)
+                                  .map(c => c.case_number);
+
+  if(pooled.length){
+    const csBlocks = buildCaseStudyBlocks(pooledCases);
+    const seed = testNumber*7919 + 13;
+    const units = [...csBlocks, ...seededShuffle(pooled, seed+303).map(q=>[q])];
+    return seededShuffle(units, seed+404).flat();
+  }
+
+  /* Fallback for a bank that has not been allocated yet: derive a test from a
+     seed as before. Deterministic per test number, but tests WILL overlap. */
+  const targetTotal = Math.min(105, QUESTIONS.length + 18);
+  const seed = testNumber*7919 + 13;
   const caseNumbers = CASE_STUDIES.length ? seededShuffle(CASE_STUDIES.map(c=>c.case_number), seed+3001).slice(0,3) : [];
   const csBlocks = buildCaseStudyBlocks(caseNumbers);
   const csTotal = csBlocks.reduce((n,b)=>n+b.length,0);
   const csCountByCategory = {};
   csBlocks.flat().forEach(q => { csCountByCategory[q.category] = (csCountByCategory[q.category]||0)+1; });
-
   const standaloneTotal = Math.max(0, targetTotal - csTotal);
   let standaloneSelected = pickStandaloneWeightedSplit(targetTotal, csCountByCategory, seed+101, false);
-
-  // Top up from whatever's left if any category came up short (e.g. a
-  // category with little NGN-extended content yet).
   if(standaloneSelected.length < standaloneTotal){
     const usedIds = new Set([...standaloneSelected.map(q=>q.id), ...csBlocks.flat().map(q=>q.id)]);
     const leftover = seededShuffle(QUESTIONS.filter(q=>!usedIds.has(q.id)), seed+888);
     standaloneSelected.push(...leftover.slice(0, standaloneTotal-standaloneSelected.length));
   }
   standaloneSelected = standaloneSelected.slice(0, standaloneTotal);
-
-  // Shuffle case-study BLOCKS in among standalone items at the unit level,
-  // keeping each case study's 6 items contiguous and in order -- a real
-  // candidate never sees a case study's items scattered or reordered, and
-  // the scenario reveal logic depends on that sequence.
   const standaloneShuffled = seededShuffle(standaloneSelected, seed+303);
   const units = [...csBlocks, ...standaloneShuffled.map(q=>[q])];
   return seededShuffle(units, seed+404).flat();
@@ -2892,15 +2910,38 @@ function buildFullTest(testNumber){
    there's more of that content now, not because that's what a hard exam
    should look like. */
 function buildHardTest(testNumber){
+  const poolKey = "hard_" + String(testNumber).padStart(2,"0");
+
+  /* Like the Full Length Tests, each Hard Test is a FIXED pre-allocated set
+     held in the database (item_pool = "hard_01".."hard_07"). Those pools are
+     mutually exclusive with each other AND with ft_01..ft_20, so nothing a
+     candidate has already seen in a Full Length Test reappears here.
+     They were selected by ranking the unused bank on difficulty and taking
+     the hardest, which makes them run heavily toward clinical-judgment
+     formats -- those items carry the highest difficulty scores, and the
+     hardest stand-alone multiple-choice had already gone into the full
+     tests. Each pool also carries one 6-item unfolding case study. */
+  const pooled = QUESTIONS.filter(q => q.itemPool === poolKey);
+  const pooledCases = CASE_STUDIES.filter(c => c.item_pool === poolKey)
+                                  .map(c => c.case_number);
+
+  if(pooled.length){
+    const csBlocks = buildCaseStudyBlocks(pooledCases);
+    const seed = testNumber*104729 + 31;
+    const units = [...csBlocks, ...seededShuffle(pooled, seed+303).map(q=>[q])];
+    return seededShuffle(units, seed+404).flat();
+  }
+
+  /* Fallback if pools have not been allocated: draw from difficulty-tagged
+     items as before. Deterministic per test number, but these WILL overlap
+     one another and the Full Length Tests. */
   const hardPool = QUESTIONS.filter(q=>q.difficulty==="hard");
   const targetTotal = Math.min(50, hardPool.length);
   const seed = testNumber*104729 + 31;
-
   const ngnTarget = Math.round(targetTotal * NGN_EXTENDED_SHARE);
   const traditionalTarget = Math.max(0, targetTotal - ngnTarget);
   const ngnSelected = pickCategoryWeightedSplit(hardPool.filter(isNgnExtendedType), ngnTarget, seed+101);
   const traditionalSelected = pickCategoryWeightedSplit(hardPool.filter(q=>!isNgnExtendedType(q)), traditionalTarget, seed+202);
-
   let selected = [...ngnSelected, ...traditionalSelected];
   if(selected.length < targetTotal){
     const usedIds = new Set(selected.map(q=>q.id));
@@ -2926,6 +2967,16 @@ function buildHardTest(testNumber){
    question per category when available, since SATA items carry the
    richest explanation format in the bank. */
 function buildFreeMockTest(){
+  /* Curated 25-item diagnostic held in the database as item_pool =
+     "free_assessment" -- hand-reviewed and deliberately excluding any item
+     whose distractors were AI-authored without clinical review. */
+  const curated = QUESTIONS.filter(q => q.itemPool === "free_assessment");
+  if(curated.length){
+    const csFree = CASE_STUDIES.filter(c => c.item_pool === "free_assessment").map(c=>c.case_number);
+    const csBlocks = csFree.length ? buildCaseStudyBlocks(csFree) : [];
+    const units = [...csBlocks, ...seededShuffle(curated, 8675309+303).map(q=>[q])];
+    return seededShuffle(units, 8675309+404).flat();
+  }
   const targetTotal = Math.min(25, QUESTIONS.length);
   const seed = 8675309;
   let selected = pickStandaloneWeightedSplit(targetTotal, {}, seed+101, true);
@@ -3018,7 +3069,7 @@ function renderRail(){
     </button>
   `;
 
-  const regularBtns = Array.from({length:30},(_,i)=>i+1).map(n=>{
+  const regularBtns = Array.from({length:FULL_TEST_COUNT},(_,i)=>i+1).map(n=>{
     const key = "full-"+n;
     const active = state.quizKey===key ? "active":"";
     const prog = state.testProgress[n];
@@ -3044,7 +3095,7 @@ function renderRail(){
   const hardLocked = hardAccess !== "open";
   const hardClickHandler = hardAccess==="open" ? null : `openUpgradeModal()`;
   const hardLockBadge = hardLocked ? LOCK_ICON : "";
-  const hardBtns = Array.from({length:7},(_,i)=>i+1).map(n=>{
+  const hardBtns = Array.from({length:HARD_TEST_COUNT},(_,i)=>i+1).map(n=>{
     const key = "hard-"+n;
     const active = state.quizKey===key ? "active":"";
     const prog = state.hardTestProgress[n];
@@ -3154,10 +3205,10 @@ function renderRail(){
 
   list.innerHTML = createTestSection + `
     <div class="rail-title" style="margin-top:16px;">Full-Length Tests</div>
-    <div class="rail-note" style="border-top:none;">Matches real exam composition: 3 full case studies (18 items) plus category-weighted standalone questions — about 90% traditional, 10% extended NGN formats (matrix, cloze, hot spot, drag-and-drop, bow-tie, trend), per the NCSBN test plan. ~105 questions per test.</div>
+    <div class="rail-note" style="border-top:none;">Matches the real blueprint: 3 unfolding case studies (18 items) plus ~12% stand-alone clinical judgment items — about 30% clinical judgment content overall, per the 2026 NCSBN test plan. 105 questions per test, and no question repeats across the 20 tests.</div>
   ` + regularBtns + `
     <div class="rail-title" style="margin-top:16px;">Hard Tests</div>
-    <div class="rail-note" style="border-top:none;">50 hard-tagged questions per test, category-weighted with the same ~90/10 traditional-to-NGN-extended mix as a real exam.</div>
+    <div class="rail-note" style="border-top:none;">50 questions per test drawn from the hardest end of the bank: 1 unfolding case study (6 items) plus high-difficulty stand-alone items, category-weighted. Clinical judgment formats run well above the real exam here — that is deliberate, since those items are the hardest. No repeats across the 7 tests or with the Full Length Tests.</div>
   ` + hardBtns + adaptiveSection + calcSection + clozeSection + matrixSection + hotspotSection + orderedSection + bowtieSection + trendSection + caseSection;
 }
 function renderSessionScore(){
@@ -3626,7 +3677,7 @@ function actuallyStartCaseStudy(caseNumber){
 
 /* The rail's actual Case Studies entry point. Picks `count` distinct case
    studies at random (fresh each time, like the item-type practice modes —
-   this isn't one of the 30 numbered, retake-the-same-set Full Length
+   this isn't one of the numbered, retake-the-same-set Full Length
    Tests) and chains them into one session. Reuses buildCaseStudyBlocks(),
    the same helper Full Length Test uses to embed case studies into a
    longer test — each case study's 6 items stay contiguous
