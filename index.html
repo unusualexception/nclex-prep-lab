@@ -4179,8 +4179,8 @@ function answerSingle(key){
     document.querySelectorAll("#optionsWrap .opt").forEach(btn=>{
       btn.classList.add("locked");
       const k = btn.getAttribute("data-key");
-      if(k === q.correct) btn.classList.add("correct");
-      else if(k === key) btn.classList.add("incorrect");
+      if(mayRevealAnswer() && k === q.correct) btn.classList.add("correct");
+      else if(mayRevealAnswer() && k === key) btn.classList.add("incorrect");
     });
     renderFeedback(q, status);
   } else {
@@ -4228,9 +4228,9 @@ function submitSata(){
       const k = btn.getAttribute("data-key");
       const isCorrectKey = q.correct.includes(k);
       const wasChosen = chosen.includes(k);
-      if(isCorrectKey && wasChosen) btn.classList.add("correct");
+      if(mayRevealAnswer() && isCorrectKey && wasChosen) btn.classList.add("correct");
       else if(isCorrectKey && !wasChosen) btn.classList.add("missed");
-      else if(!isCorrectKey && wasChosen) btn.classList.add("incorrect");
+      else if(mayRevealAnswer() && !isCorrectKey && wasChosen) btn.classList.add("incorrect");
     });
     renderFeedback(q, status, sataDetail);
   } else {
@@ -4317,7 +4317,7 @@ function submitClozeAnswer(){
   state.answers[state.answers.length-1].clozeDetail = clozeDetail;
   selects.forEach((sel,idx)=>{
     sel.disabled = true;
-    sel.classList.add(blankResults[idx].isCorrect ? "cloze-correct" : "cloze-incorrect");
+    if(mayRevealAnswer()) sel.classList.add(blankResults[idx].isCorrect ? "cloze-correct" : "cloze-incorrect");
   });
   const btn = document.getElementById("clozeSubmitBtn");
   if(btn) btn.disabled = true;
@@ -4403,9 +4403,9 @@ function submitMatrixAnswer(){
     const col = q.matrixColumns[colIdx], row = q.matrixRows[rIdx];
     const isCorrectCell = isChoice ? (col===row.correct) : row.correct.includes(col);
     const wasChecked = inp.checked;
-    if(isCorrectCell && wasChecked) inp.closest("td").classList.add("matrix-correct");
+    if(mayRevealAnswer() && isCorrectCell && wasChecked) inp.closest("td").classList.add("matrix-correct");
     else if(isCorrectCell && !wasChecked) inp.closest("td").classList.add("matrix-missed");
-    else if(!isCorrectCell && wasChecked) inp.closest("td").classList.add("matrix-incorrect");
+    else if(mayRevealAnswer() && !isCorrectCell && wasChecked) inp.closest("td").classList.add("matrix-incorrect");
   });
   const btn = document.getElementById("matrixSubmitBtn");
   if(btn) btn.disabled = true;
@@ -4489,9 +4489,9 @@ function submitHotspotAnswer(){
     const isCorrectSeg = correctSet.has(segId);
     const wasSelected = selectedForRecord.includes(segId);
     span.classList.remove("hotspot-selected");
-    if(isCorrectSeg && wasSelected) span.classList.add("hotspot-correct");
+    if(mayRevealAnswer() && isCorrectSeg && wasSelected) span.classList.add("hotspot-correct");
     else if(isCorrectSeg && !wasSelected) span.classList.add("hotspot-missed");
-    else if(!isCorrectSeg && wasSelected) span.classList.add("hotspot-incorrect");
+    else if(mayRevealAnswer() && !isCorrectSeg && wasSelected) span.classList.add("hotspot-incorrect");
   });
   const btn = document.getElementById("hotspotSubmitBtn");
   if(btn) btn.disabled = true;
@@ -4558,7 +4558,7 @@ function submitOrderedAnswer(){
   state.answers[state.answers.length-1].orderedDetail = orderedDetail;
   document.querySelectorAll(".ordered-item").forEach((el,idx)=>{
     el.classList.add("ordered-disabled");
-    el.classList.add(positionResults[idx].isCorrectPos ? "ordered-correct" : "ordered-incorrect");
+    if(mayRevealAnswer()) el.classList.add(positionResults[idx].isCorrectPos ? "ordered-correct" : "ordered-incorrect");
   });
   const btn = document.getElementById("orderedSubmitBtn");
   if(btn) btn.disabled = true;
@@ -4680,9 +4680,9 @@ function submitBowtieAnswer(){
     wrap.classList.add("bowtie-disabled");
     const wasSelected = selectedForRecord.actions.includes(o.id);
     const isCorrectOpt = correctActions.has(o.id);
-    if(isCorrectOpt && wasSelected) wrap.classList.add("bowtie-correct");
+    if(mayRevealAnswer() && isCorrectOpt && wasSelected) wrap.classList.add("bowtie-correct");
     else if(isCorrectOpt && !wasSelected) wrap.classList.add("bowtie-missed");
-    else if(!isCorrectOpt && wasSelected) wrap.classList.add("bowtie-incorrect");
+    else if(mayRevealAnswer() && !isCorrectOpt && wasSelected) wrap.classList.add("bowtie-incorrect");
   });
   q.bowtieConditions.forEach(o=>{
     const wrap = document.getElementById("bowtieCondition-"+o.id);
@@ -4690,9 +4690,9 @@ function submitBowtieAnswer(){
     wrap.classList.add("bowtie-disabled");
     const wasSelected = selectedForRecord.condition === o.id;
     const isCorrectOpt = o.id === q.correct.condition;
-    if(isCorrectOpt && wasSelected) wrap.classList.add("bowtie-correct");
+    if(mayRevealAnswer() && isCorrectOpt && wasSelected) wrap.classList.add("bowtie-correct");
     else if(isCorrectOpt && !wasSelected) wrap.classList.add("bowtie-missed");
-    else if(!isCorrectOpt && wasSelected) wrap.classList.add("bowtie-incorrect");
+    else if(mayRevealAnswer() && !isCorrectOpt && wasSelected) wrap.classList.add("bowtie-incorrect");
   });
   q.bowtieParameters.forEach(o=>{
     const wrap = document.getElementById("bowtieParameter-"+o.id);
@@ -4700,9 +4700,9 @@ function submitBowtieAnswer(){
     wrap.classList.add("bowtie-disabled");
     const wasSelected = selectedForRecord.parameters.includes(o.id);
     const isCorrectOpt = correctParameters.has(o.id);
-    if(isCorrectOpt && wasSelected) wrap.classList.add("bowtie-correct");
+    if(mayRevealAnswer() && isCorrectOpt && wasSelected) wrap.classList.add("bowtie-correct");
     else if(isCorrectOpt && !wasSelected) wrap.classList.add("bowtie-missed");
-    else if(!isCorrectOpt && wasSelected) wrap.classList.add("bowtie-incorrect");
+    else if(mayRevealAnswer() && !isCorrectOpt && wasSelected) wrap.classList.add("bowtie-incorrect");
   });
   const btn = document.getElementById("bowtieSubmitBtn");
   if(btn) btn.disabled = true;
@@ -4719,7 +4719,7 @@ function skipQuestion(){
   const q = state.questions[state.index];
   recordAnswer(q, "skipped", null);
   document.querySelectorAll("#optionsWrap .opt").forEach(btn=>btn.classList.add("locked"));
-  const isLast = state.index === effectiveTotalQuestions()-1;
+  const isLast = isLastQuestion();
   document.getElementById("feedbackZone").innerHTML = `
     <div class="feedback-banner" style="background:var(--gold-100);color:var(--gold);">
       <span class="stamp">⏭ SKIPPED</span>
@@ -4764,7 +4764,7 @@ function finishTestNow(){
 }
 
 function renderDeferredFeedback(){
-  const isLast = state.index === effectiveTotalQuestions()-1;
+  const isLast = isLastQuestion();
   document.getElementById("feedbackZone").innerHTML = `
     <div class="feedback-banner" style="background:var(--teal-100);color:var(--teal-900);">
       <span class="stamp">RECORDED</span>
@@ -4839,7 +4839,7 @@ function renderFeedback(q, status, sataDetail, clozeDetail, matrixDetail, hotspo
   }
   const wrongList = Object.entries(q.explain.wrong||{}).map(([k,txt])=>
     `<div class="why-wrong-item"><b>${k}</b>${txt}</div>`).join("");
-  const isLast = state.index === effectiveTotalQuestions()-1;
+  const isLast = isLastQuestion();
   const html = `
     <div class="feedback-banner ${bannerClass}">
       <span class="stamp">${stamp}</span>
@@ -4868,9 +4868,29 @@ function effectiveTotalQuestions(){
   return state.quizType==="adaptive" ? ADAPTIVE_TEST_LENGTH : state.questions.length;
 }
 
+/* In an adaptive exam no item is ever "the last one" from the candidate's
+   side - only the engine knows when it stops, and it announces that with the
+   shutoff screen. Returning true here would surface a "See results" button
+   and quietly tell the candidate the exam was about to end. */
+function isLastQuestion(){
+  if(state.quizType === "adaptive") return false;
+  return state.index === effectiveTotalQuestions()-1;
+}
+
 /* "Check Answer" is only truthful when the answer is actually revealed on
    submission. In Exam Mode and Adaptive nothing is checked in front of the
    candidate — the response is recorded and review comes at the end. */
+
+/* Whether correct/incorrect styling may be shown on the item itself right
+   after submission. In Exam Mode and Adaptive it must NOT be: colouring the
+   options tells the candidate how they did, and in an adaptive exam that also
+   tells them which way the difficulty is about to move - the single signal the
+   real NCLEX is designed to withhold. Items are still disabled after
+   submission; they just are not marked. */
+function mayRevealAnswer(){
+  return state.feedbackMode === "immediate";
+}
+
 function answerBtnLabel(){
   return state.feedbackMode === "end" ? "Submit Answer" : "Check Answer";
 }
