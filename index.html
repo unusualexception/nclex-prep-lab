@@ -275,7 +275,10 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
   .acct-trigger .who span{font-size:9.5px;color:var(--ink-soft);font-family:'IBM Plex Mono',monospace;}
   .acct-caret{font-size:9px;color:var(--ink-soft);transition:transform .15s;}
   .acct-wrap.open .acct-caret{transform:rotate(180deg);}
-  .acct-menu{display:none;position:absolute;bottom:calc(100% + 6px);left:0;right:0;background:var(--panel);border:1px solid var(--line);border-radius:10px;box-shadow:0 8px 24px rgba(0,0,0,.12);overflow:hidden;z-index:60;}
+  /* The widget lives in the HEADER, so the menu must open DOWNWARD. Anchoring
+     it to bottom:100% put it above the header and off-screen, where it could
+     not be seen or clicked. min-width keeps it usable when the trigger is narrow. */
+  .acct-menu{display:none;position:absolute;top:calc(100% + 6px);right:0;min-width:210px;background:var(--panel);border:1px solid var(--line);border-radius:10px;box-shadow:0 8px 24px rgba(0,0,0,.16);overflow:hidden;z-index:120;}
   .acct-wrap.open .acct-menu{display:block;}
   .acct-menu button{display:flex;align-items:center;gap:8px;width:100%;background:none;border:0;padding:9px 12px;font-family:inherit;font-size:12.5px;color:var(--ink);cursor:pointer;text-align:left;}
   .acct-menu button:hover{background:var(--teal-100);}
@@ -1117,104 +1120,74 @@ function renderAccountPanel(){
   document.getElementById("acctTabs").innerHTML = tabs.map(t=>
     `<button class="acct-tab ${acctTab===t.k?"on":""}" onclick="acctTab='${t.k}';renderAccountPanel()">${t.label}</button>`).join("");
   const body = document.getElementById("acctBody");
-  if(acctTab==="subscription")      body.innerHTML = acctSubscriptionHtml();
+  if(acctTab==="subscription")    { body.innerHTML = acctSubscriptionHtml(); renderAcctPurchases(); }
   else if(acctTab==="profile")      body.innerHTML = acctProfileHtml();
   else if(acctTab==="password")     body.innerHTML = acctPasswordHtml();
   else if(acctTab==="admin")        body.innerHTML = acctAdminHtml();
   else { body.innerHTML = `<p style="font-size:12.5px;color:var(--ink-soft);">Loading your performance…</p>`; renderAcctPerformance(); }
 }
 
-/* Stripe and PayPal are NOT symmetrical here, and pretending otherwise
-   produces a dead button. Stripe exposes a hosted Customer Portal, but the
-   session must be created server-side with the secret key, so the button calls
-   an edge function and redirects. PayPal has no equivalent the merchant can
-   generate: a PayPal subscriber manages and cancels from inside their own
-   PayPal account, so the honest action is a deep link there. Anything else
-   (manual/comp grants) has no self-service path at all. */
-const PAYPAL_MANAGE_URL = "https://www.paypal.com/myaccount/autopay/";
-
+/* Access is sold as one-off blocks of 1, 3 or 6 months. Nothing recurs, so
+   there is no subscription to cancel, no billing portal to open and no
+   "renews on" date - only "access until", and an option to buy more time.
+   Buying again while still active EXTENDS from the existing expiry rather than
+   from today, so nobody pays twice for the same days. */
 function acctSubscriptionHtml(){
   const p = authState.profile || {};
+  const until = p.access_until || p.subscription_expires_at;
   const active = hasActiveSubscription();
-  const provider = p.payment_provider || null;
-  const periodEnd = p.current_period_end || p.subscription_expires_at;
-  const endStr = periodEnd ? new Date(periodEnd).toLocaleDateString() : null;
-  const cancelling = !!p.cancel_at_period_end;
-
-  const statusLine = !active
-    ? "Full-length tests, hard tests, the adaptive exam and the test builder need a paid plan."
-    : cancelling
-      ? `Cancelled &mdash; your access continues until ${endStr || "the end of the current period"}, then stops.`
-      : endStr ? `Active &mdash; renews on ${endStr}.` : "Active.";
-
-  let manageHtml;
-  if(!active){
-    manageHtml = `<button class="btn" style="width:100%;" onclick="closeAccountModal();openUpgradeModal()">See plans and subscribe</button>`;
-  } else if(provider === "stripe"){
-    manageHtml = `
-      <button class="btn" style="width:100%;" id="acctPortalBtn" onclick="openStripePortal()">
-        Manage or cancel subscription
-      </button>
-      <p style="font-size:11px;color:var(--ink-soft);margin:8px 0 0;">
-        Opens your secure billing page, where you can change plan, update your card, download invoices, or cancel.
-      </p>`;
-  } else if(provider === "paypal"){
-    manageHtml = `
-      <a class="btn" style="width:100%;display:block;text-align:center;text-decoration:none;"
-         href="${PAYPAL_MANAGE_URL}" target="_blank" rel="noopener">
-        Manage subscription in PayPal
-      </a>
-      <p style="font-size:11px;color:var(--ink-soft);margin:8px 0 0;">
-        PayPal subscriptions are managed from your own PayPal account, under
-        <em>Settings &rsaquo; Payments &rsaquo; Automatic payments</em>. Cancelling there stops future
-        billing; your access here continues until ${endStr || "the end of the paid period"}.
-      </p>`;
-  } else {
-    manageHtml = `
-      <p style="font-size:12.5px;color:var(--ink-soft);margin:0 0 10px;">
-        This plan was set up manually rather than through a card or PayPal subscription,
-        so there is nothing to cancel here.
-      </p>
-      <button class="btn secondary" style="width:100%;" onclick="closeAccountModal();openUpgradeModal()">View plans</button>`;
-  }
+  const endStr = until ? new Date(until).toLocaleDateString(undefined,{year:"numeric",month:"long",day:"numeric"}) : null;
+  const daysLeft = until ? Math.ceil((new Date(until) - Date.now())/86400000) : 0;
+  const soon = active && daysLeft <= 14;
 
   return `
     <div class="acct-msg" id="acctSubMsg"></div>
-    <div style="border:1px solid var(--line);border-radius:10px;padding:14px 16px;margin-bottom:12px;">
-      <div style="font-size:11px;letter-spacing:.08em;color:var(--ink-soft);">CURRENT PLAN</div>
+    <div style="border:1px solid var(--line);border-left:4px solid ${active?(soon?'var(--gold)':'var(--correct)'):'var(--line)'};border-radius:10px;padding:14px 16px;margin-bottom:12px;">
+      <div style="font-size:11px;letter-spacing:.08em;color:var(--ink-soft);">ACCESS</div>
       <div style="font-size:18px;font-weight:700;margin:3px 0 6px;">
-        ${active ? (p.subscription_tier||"").toUpperCase() : "Free account"}
+        ${active ? `Active until ${endStr}` : "No active access"}
       </div>
-      <p style="margin:0;font-size:12.5px;color:var(--ink-soft);">${statusLine}</p>
-      ${provider && active ? `<p style="margin:6px 0 0;font-size:11px;color:var(--ink-soft);" class="mono">
-        Billed via ${provider === "stripe" ? "card (Stripe)" : provider === "paypal" ? "PayPal" : provider}
-      </p>` : ""}
+      <p style="margin:0;font-size:12.5px;color:var(--ink-soft);">
+        ${active
+          ? `${daysLeft} day${daysLeft===1?"":"s"} remaining.${soon ? " Add more time before it runs out to keep your history and stats uninterrupted." : ""}`
+          : "Full-length tests, hard tests, the adaptive exam and the test builder need active access."}
+      </p>
+      ${p.payment_provider ? `<p style="margin:6px 0 0;font-size:11px;color:var(--ink-soft);" class="mono">Last paid via ${p.payment_provider === "stripe" ? "card" : p.payment_provider}</p>` : ""}
     </div>
-    ${manageHtml}`;
+
+    <button class="btn" style="width:100%;" onclick="closeAccountModal();openUpgradeModal()">
+      ${active ? "Add more time" : "Get access"}
+    </button>
+
+    <p style="font-size:11.5px;color:var(--ink-soft);margin:10px 0 0;line-height:1.6;">
+      <strong>One-off payments only.</strong> Nothing renews automatically and there is no
+      subscription to cancel &mdash; access simply ends on the date above unless you add more time.
+      Buying while you still have time left adds to it rather than replacing it.
+    </p>
+    <div id="acctPurchaseList" style="margin-top:14px;"></div>
+    `;
 }
 
-/* Requires a deployed edge function that creates a Billing Portal session with
-   the Stripe secret key and returns { url }. Never call Stripe directly from
-   the browser - the secret key must not ship to the client. */
-async function openStripePortal(){
-  const btn = document.getElementById("acctPortalBtn");
-  const msg = document.getElementById("acctSubMsg");
-  if(btn){ btn.disabled = true; btn.textContent = "Opening billing page…"; }
+/* Purchase history, rendered after the tab paints. */
+async function renderAcctPurchases(){
+  const host = document.getElementById("acctPurchaseList");
+  if(!host || !sbClient || !authState.user) return;
   try{
-    const { data, error } = await sbClient.functions.invoke("stripe-portal", {
-      body: { return_url: window.location.href }
-    });
+    const { data, error } = await sbClient.from("purchases")
+      .select("plan_months,provider,purchased_at,access_until,amount_cents,currency,status")
+      .eq("user_id", authState.user.id).order("purchased_at",{ascending:false}).limit(10);
     if(error) throw error;
-    if(!data || !data.url) throw new Error("No portal URL returned.");
-    window.location.href = data.url;
-  }catch(e){
-    if(btn){ btn.disabled = false; btn.textContent = "Manage or cancel subscription"; }
-    if(msg){
-      msg.className = "acct-msg err";
-      msg.textContent = "Could not open the billing page. Please try again, or contact support to change your subscription.";
-    }
-    console.error("Stripe portal error:", e);
-  }
+    if(!data || !data.length){ host.innerHTML = ""; return; }
+    host.innerHTML = `
+      <div class="mono" style="font-size:10.5px;color:var(--ink-soft);text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px;">Purchase history</div>
+      ${data.map(r=>`
+        <div style="display:flex;justify-content:space-between;gap:10px;font-size:11.5px;padding:5px 0;border-bottom:1px solid var(--line);">
+          <span>${r.plan_months} month${r.plan_months===1?"":"s"} &middot; ${r.provider}${r.status!=="paid"?` &middot; ${r.status}`:""}</span>
+          <span class="mono" style="color:var(--ink-soft);white-space:nowrap;">
+            ${new Date(r.purchased_at).toLocaleDateString()}${r.amount_cents!=null?` &middot; ${(r.amount_cents/100).toFixed(2)} ${r.currency||""}`:""}
+          </span>
+        </div>`).join("")}`;
+  }catch(e){ host.innerHTML = ""; console.warn("purchase history unavailable:", e); }
 }
 
 function acctProfileHtml(){
