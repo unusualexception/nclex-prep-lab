@@ -267,6 +267,34 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
   .ct-grid input.ct-over{border-color:var(--incorrect);background:var(--incorrect-bg);}
   .ct-grid .ct-rowtot,.ct-grid .ct-coltot{font-weight:700;background:var(--paper);font-size:11.5px;}
   .ct-grid .ct-over-txt{color:var(--incorrect);}
+  .acct-wrap{position:relative;}
+  .acct-trigger{display:flex;align-items:center;gap:8px;width:100%;background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:8px 11px;cursor:pointer;font-family:inherit;text-align:left;color:var(--ink);}
+  .acct-trigger:hover{border-color:var(--teal-600);}
+  .acct-trigger .who{display:flex;flex-direction:column;line-height:1.25;flex:1;min-width:0;}
+  .acct-trigger .who b{font-size:12px;}
+  .acct-trigger .who span{font-size:9.5px;color:var(--ink-soft);font-family:'IBM Plex Mono',monospace;}
+  .acct-caret{font-size:9px;color:var(--ink-soft);transition:transform .15s;}
+  .acct-wrap.open .acct-caret{transform:rotate(180deg);}
+  .acct-menu{display:none;position:absolute;bottom:calc(100% + 6px);left:0;right:0;background:var(--panel);border:1px solid var(--line);border-radius:10px;box-shadow:0 8px 24px rgba(0,0,0,.12);overflow:hidden;z-index:60;}
+  .acct-wrap.open .acct-menu{display:block;}
+  .acct-menu button{display:flex;align-items:center;gap:8px;width:100%;background:none;border:0;padding:9px 12px;font-family:inherit;font-size:12.5px;color:var(--ink);cursor:pointer;text-align:left;}
+  .acct-menu button:hover{background:var(--teal-100);}
+  .acct-menu .sep{height:1px;background:var(--line);margin:2px 0;}
+  .acct-menu button.danger{color:var(--incorrect);}
+  .acct-menu button.danger:hover{background:var(--incorrect-bg);}
+  .acct-ico{width:15px;text-align:center;opacity:.7;font-size:12px;}
+  .acct-tabs{display:flex;gap:4px;border-bottom:1px solid var(--line);margin:0 0 14px;flex-wrap:wrap;}
+  .acct-tab{background:none;border:0;border-bottom:2px solid transparent;padding:7px 10px;font-family:inherit;font-size:12.5px;color:var(--ink-soft);cursor:pointer;}
+  .acct-tab.on{color:var(--teal-900);border-bottom-color:var(--teal-600);font-weight:600;}
+  .acct-field{margin-bottom:12px;}
+  .acct-field label{display:block;font-size:11.5px;font-weight:600;color:var(--ink-soft);margin-bottom:4px;}
+  .acct-field input{width:100%;padding:8px 10px;border:1px solid var(--line);border-radius:8px;font-size:13px;font-family:inherit;background:var(--panel);color:var(--ink);}
+  .acct-msg{font-size:12px;border-radius:8px;padding:8px 10px;margin-bottom:10px;display:none;}
+  .acct-msg.ok{background:var(--teal-100);color:var(--teal-900);display:block;}
+  .acct-msg.err{background:var(--incorrect-bg);color:var(--incorrect);display:block;}
+  .perf-row{display:flex;align-items:center;gap:8px;margin-bottom:7px;font-size:12px;}
+  .perf-bar{flex:1;height:7px;background:var(--paper);border-radius:4px;overflow:hidden;}
+  .perf-bar i{display:block;height:100%;background:var(--teal-600);}
   .rail-btn.rail-btn-adaptive{border-color:var(--blue);background:var(--blue);color:#fff;}
   .rail-btn.rail-btn-adaptive .mono{color:#fff;}
   .rail-btn.rail-btn-adaptive:hover{border-color:var(--blue);filter:brightness(1.12);}
@@ -493,6 +521,15 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
       <div class="account-widget" id="accountWidget"></div>
     </div>
   </header>
+
+  <div class="auth-overlay" id="accountOverlay" style="display:none;">
+    <div class="auth-modal" style="max-width:560px;max-height:86vh;overflow-y:auto;">
+      <button class="auth-close" id="accountCloseBtn" aria-label="Close">&times;</button>
+      <h3 style="margin:0 0 12px;font-size:17px;">My Account</h3>
+      <div class="acct-tabs" id="acctTabs"></div>
+      <div id="acctBody"></div>
+    </div>
+  </div>
 
   <div class="auth-overlay" id="customTestOverlay" style="display:none;">
     <div class="auth-modal custom-test-modal">
@@ -1041,6 +1078,272 @@ function caseStudyAccessState(){
   return "upgrade";
 }
 
+
+/* ---------- Account menu + panel ---------- */
+function toggleAccountMenu(e){
+  if(e) e.stopPropagation();
+  const w = document.getElementById("acctWrap");
+  if(!w) return;
+  const open = w.classList.toggle("open");
+  w.querySelector(".acct-trigger").setAttribute("aria-expanded", open ? "true":"false");
+}
+function closeAccountMenu(){
+  const w = document.getElementById("acctWrap");
+  if(w){ w.classList.remove("open"); w.querySelector(".acct-trigger").setAttribute("aria-expanded","false"); }
+}
+document.addEventListener("click", e=>{
+  const w = document.getElementById("acctWrap");
+  if(w && w.classList.contains("open") && !w.contains(e.target)) closeAccountMenu();
+});
+document.addEventListener("keydown", e=>{ if(e.key==="Escape") closeAccountMenu(); });
+
+let acctTab = "subscription";
+function openAccount(tab){
+  closeAccountMenu();
+  acctTab = tab || "subscription";
+  document.getElementById("accountOverlay").style.display = "flex";
+  renderAccountPanel();
+}
+function closeAccountModal(){ document.getElementById("accountOverlay").style.display = "none"; }
+
+function renderAccountPanel(){
+  const tabs = [
+    {k:"subscription", label:"Subscription"},
+    {k:"profile",      label:"Profile"},
+    {k:"password",     label:"Password"},
+    {k:"performance",  label:"Performance"}
+  ];
+  if(isAdmin()) tabs.push({k:"admin", label:"Admin"});
+  document.getElementById("acctTabs").innerHTML = tabs.map(t=>
+    `<button class="acct-tab ${acctTab===t.k?"on":""}" onclick="acctTab='${t.k}';renderAccountPanel()">${t.label}</button>`).join("");
+  const body = document.getElementById("acctBody");
+  if(acctTab==="subscription")      body.innerHTML = acctSubscriptionHtml();
+  else if(acctTab==="profile")      body.innerHTML = acctProfileHtml();
+  else if(acctTab==="password")     body.innerHTML = acctPasswordHtml();
+  else if(acctTab==="admin")        body.innerHTML = acctAdminHtml();
+  else { body.innerHTML = `<p style="font-size:12.5px;color:var(--ink-soft);">Loading your performance…</p>`; renderAcctPerformance(); }
+}
+
+/* Stripe and PayPal are NOT symmetrical here, and pretending otherwise
+   produces a dead button. Stripe exposes a hosted Customer Portal, but the
+   session must be created server-side with the secret key, so the button calls
+   an edge function and redirects. PayPal has no equivalent the merchant can
+   generate: a PayPal subscriber manages and cancels from inside their own
+   PayPal account, so the honest action is a deep link there. Anything else
+   (manual/comp grants) has no self-service path at all. */
+const PAYPAL_MANAGE_URL = "https://www.paypal.com/myaccount/autopay/";
+
+function acctSubscriptionHtml(){
+  const p = authState.profile || {};
+  const active = hasActiveSubscription();
+  const provider = p.payment_provider || null;
+  const periodEnd = p.current_period_end || p.subscription_expires_at;
+  const endStr = periodEnd ? new Date(periodEnd).toLocaleDateString() : null;
+  const cancelling = !!p.cancel_at_period_end;
+
+  const statusLine = !active
+    ? "Full-length tests, hard tests, the adaptive exam and the test builder need a paid plan."
+    : cancelling
+      ? `Cancelled &mdash; your access continues until ${endStr || "the end of the current period"}, then stops.`
+      : endStr ? `Active &mdash; renews on ${endStr}.` : "Active.";
+
+  let manageHtml;
+  if(!active){
+    manageHtml = `<button class="btn" style="width:100%;" onclick="closeAccountModal();openUpgradeModal()">See plans and subscribe</button>`;
+  } else if(provider === "stripe"){
+    manageHtml = `
+      <button class="btn" style="width:100%;" id="acctPortalBtn" onclick="openStripePortal()">
+        Manage or cancel subscription
+      </button>
+      <p style="font-size:11px;color:var(--ink-soft);margin:8px 0 0;">
+        Opens your secure billing page, where you can change plan, update your card, download invoices, or cancel.
+      </p>`;
+  } else if(provider === "paypal"){
+    manageHtml = `
+      <a class="btn" style="width:100%;display:block;text-align:center;text-decoration:none;"
+         href="${PAYPAL_MANAGE_URL}" target="_blank" rel="noopener">
+        Manage subscription in PayPal
+      </a>
+      <p style="font-size:11px;color:var(--ink-soft);margin:8px 0 0;">
+        PayPal subscriptions are managed from your own PayPal account, under
+        <em>Settings &rsaquo; Payments &rsaquo; Automatic payments</em>. Cancelling there stops future
+        billing; your access here continues until ${endStr || "the end of the paid period"}.
+      </p>`;
+  } else {
+    manageHtml = `
+      <p style="font-size:12.5px;color:var(--ink-soft);margin:0 0 10px;">
+        This plan was set up manually rather than through a card or PayPal subscription,
+        so there is nothing to cancel here.
+      </p>
+      <button class="btn secondary" style="width:100%;" onclick="closeAccountModal();openUpgradeModal()">View plans</button>`;
+  }
+
+  return `
+    <div class="acct-msg" id="acctSubMsg"></div>
+    <div style="border:1px solid var(--line);border-radius:10px;padding:14px 16px;margin-bottom:12px;">
+      <div style="font-size:11px;letter-spacing:.08em;color:var(--ink-soft);">CURRENT PLAN</div>
+      <div style="font-size:18px;font-weight:700;margin:3px 0 6px;">
+        ${active ? (p.subscription_tier||"").toUpperCase() : "Free account"}
+      </div>
+      <p style="margin:0;font-size:12.5px;color:var(--ink-soft);">${statusLine}</p>
+      ${provider && active ? `<p style="margin:6px 0 0;font-size:11px;color:var(--ink-soft);" class="mono">
+        Billed via ${provider === "stripe" ? "card (Stripe)" : provider === "paypal" ? "PayPal" : provider}
+      </p>` : ""}
+    </div>
+    ${manageHtml}`;
+}
+
+/* Requires a deployed edge function that creates a Billing Portal session with
+   the Stripe secret key and returns { url }. Never call Stripe directly from
+   the browser - the secret key must not ship to the client. */
+async function openStripePortal(){
+  const btn = document.getElementById("acctPortalBtn");
+  const msg = document.getElementById("acctSubMsg");
+  if(btn){ btn.disabled = true; btn.textContent = "Opening billing page…"; }
+  try{
+    const { data, error } = await sbClient.functions.invoke("stripe-portal", {
+      body: { return_url: window.location.href }
+    });
+    if(error) throw error;
+    if(!data || !data.url) throw new Error("No portal URL returned.");
+    window.location.href = data.url;
+  }catch(e){
+    if(btn){ btn.disabled = false; btn.textContent = "Manage or cancel subscription"; }
+    if(msg){
+      msg.className = "acct-msg err";
+      msg.textContent = "Could not open the billing page. Please try again, or contact support to change your subscription.";
+    }
+    console.error("Stripe portal error:", e);
+  }
+}
+
+function acctProfileHtml(){
+  const p = authState.profile || {};
+  return `
+    <div class="acct-msg" id="acctProfileMsg"></div>
+    <div class="acct-field">
+      <label for="acctName">Full name</label>
+      <input id="acctName" type="text" value="${(p.full_name||authState.user.name||"").replace(/"/g,"&quot;")}" maxlength="120">
+    </div>
+    <div class="acct-field">
+      <label for="acctEmail">Email</label>
+      <input id="acctEmail" type="email" value="${(p.email||authState.user.email||"").replace(/"/g,"&quot;")}" disabled>
+      <p style="font-size:11px;color:var(--ink-soft);margin:4px 0 0;">Email is tied to your login. Contact support to change it.</p>
+    </div>
+    <button class="btn" style="width:100%;" onclick="saveAcctProfile()">Save changes</button>`;
+}
+async function saveAcctProfile(){
+  const msg = document.getElementById("acctProfileMsg");
+  const name = document.getElementById("acctName").value.trim();
+  if(!name){ msg.className="acct-msg err"; msg.textContent="Name cannot be empty."; return; }
+  try{
+    const { error } = await sbClient.from("profiles")
+      .update({ full_name:name, updated_at:new Date().toISOString() })
+      .eq("id", authState.user.id);
+    if(error) throw error;
+    authState.profile.full_name = name;
+    authState.user.name = name;
+    msg.className="acct-msg ok"; msg.textContent="Profile updated.";
+    renderAccountWidget();
+  }catch(e){
+    msg.className="acct-msg err"; msg.textContent = "Could not save: " + (e.message||"unknown error");
+  }
+}
+
+function acctPasswordHtml(){
+  return `
+    <div class="acct-msg" id="acctPwMsg"></div>
+    <div class="acct-field">
+      <label for="acctPw1">New password</label>
+      <input id="acctPw1" type="password" autocomplete="new-password" placeholder="At least 8 characters">
+    </div>
+    <div class="acct-field">
+      <label for="acctPw2">Confirm new password</label>
+      <input id="acctPw2" type="password" autocomplete="new-password">
+    </div>
+    <button class="btn" style="width:100%;" onclick="saveAcctPassword()">Update password</button>
+    <p style="font-size:11px;color:var(--ink-soft);margin:10px 0 0;">
+      Forgotten your current password? Log out and use &ldquo;Forgot password&rdquo; on the login screen to receive a reset link.
+    </p>`;
+}
+async function saveAcctPassword(){
+  const msg = document.getElementById("acctPwMsg");
+  const a = document.getElementById("acctPw1").value;
+  const b = document.getElementById("acctPw2").value;
+  if(a.length < 8){ msg.className="acct-msg err"; msg.textContent="Password must be at least 8 characters."; return; }
+  if(a !== b){ msg.className="acct-msg err"; msg.textContent="The two passwords do not match."; return; }
+  try{
+    const { error } = await sbClient.auth.updateUser({ password:a });
+    if(error) throw error;
+    msg.className="acct-msg ok"; msg.textContent="Password updated.";
+    document.getElementById("acctPw1").value=""; document.getElementById("acctPw2").value="";
+  }catch(e){
+    msg.className="acct-msg err"; msg.textContent = "Could not update: " + (e.message||"unknown error");
+  }
+}
+
+function acctAdminHtml(){
+  return `
+    <p style="font-size:12.5px;color:var(--ink-soft);margin:0 0 12px;">
+      Administrator tools: user lookup, subscription overrides, promo codes and pricing.
+    </p>
+    <button class="btn" style="width:100%;" onclick="closeAccountModal();goAdmin()">Open admin console</button>`;
+}
+
+/* Performance is computed from recorded answers rather than from test scores,
+   so partially completed sessions still contribute - which matters, because
+   most practice sessions are abandoned part way. */
+async function renderAcctPerformance(){
+  const body = document.getElementById("acctBody");
+  if(!sbClient || !authState.user){ body.innerHTML = `<p style="font-size:12.5px;">Log in to see your performance.</p>`; return; }
+  try{
+    const { data, error } = await sbClient.from("quiz_answers")
+      .select("category,status").eq("user_id", authState.user.id);
+    if(error) throw error;
+    if(!data || !data.length){
+      body.innerHTML = `<p style="font-size:12.5px;color:var(--ink-soft);">No answers recorded yet. Take a test and your section-by-section performance will appear here.</p>`;
+      return;
+    }
+    const by = {};
+    data.forEach(r=>{
+      const k = r.category || "—";
+      by[k] = by[k] || {n:0, good:0, part:0, bad:0, skip:0};
+      by[k].n++;
+      if(r.status==="correct") by[k].good++;
+      else if(r.status==="partial") by[k].part++;
+      else if(r.status==="skipped") by[k].skip++;
+      else by[k].bad++;
+    });
+    const totalN = data.length;
+    const rows = CATEGORIES.filter(c=>by[c.key]).map(c=>{
+      const v = by[c.key];
+      const credit = v.good + v.part*0.5;
+      const pct = Math.round((credit/v.n)*100);
+      return `<div class="perf-row">
+        <span style="width:150px;flex-shrink:0;">${c.label}</span>
+        <span class="perf-bar"><i style="width:${pct}%;background:${pct>=70?'var(--correct)':pct>=50?'var(--gold)':'var(--incorrect)'}"></i></span>
+        <span class="mono" style="width:112px;text-align:right;font-size:11px;color:var(--ink-soft);">${pct}% · ${v.n} answered</span>
+      </div>`;
+    }).join("");
+    const weakest = CATEGORIES.filter(c=>by[c.key] && by[c.key].n>=5)
+      .map(c=>({c, pct:(by[c.key].good + by[c.key].part*0.5)/by[c.key].n}))
+      .sort((a,b)=>a.pct-b.pct)[0];
+    body.innerHTML = `
+      <p style="font-size:12.5px;color:var(--ink-soft);margin:0 0 12px;">
+        Across ${totalN} recorded answer${totalN===1?"":"s"}. Partial-credit answers count as half.
+      </p>
+      ${rows || `<p style="font-size:12.5px;">Not enough data yet.</p>`}
+      ${weakest ? `<p style="font-size:12px;color:var(--ink-soft);margin:14px 0 0;">
+        Weakest section so far: <strong>${weakest.c.label}</strong>. Sections with fewer than 5 answers are excluded from that comparison.
+      </p>` : ""}
+      <p style="font-size:11px;color:var(--ink-soft);margin:10px 0 0;">
+        This is descriptive, not predictive &mdash; it reports what you answered, not a chance of passing.
+      </p>`;
+  }catch(e){
+    body.innerHTML = `<p style="font-size:12.5px;color:var(--incorrect);">Could not load performance: ${e.message||"unknown error"}</p>`;
+  }
+}
+
 function renderAccountWidget(){
   const el = document.getElementById("accountWidget");
   if(!el) return;
@@ -1048,12 +1351,27 @@ function renderAccountWidget(){
     const tierLabel = hasActiveSubscription()
       ? (authState.profile.subscription_tier.toUpperCase()+" — ACTIVE")
       : "FREE ACCOUNT";
+    /* Collapsed by default. Four links sitting permanently in the sidebar is
+       fine at four; it does not survive adding subscription, profile, password
+       and performance. A single trigger that opens a menu is the standard
+       pattern and keeps the rail for study navigation. */
     el.innerHTML = `
-      <div class="account-pill">
-        <div class="who"><b>${authState.user.name}</b><span>${tierLabel}</span></div>
-        <button class="link-btn" onclick="viewMyResults()">History</button>
-        ${isAdmin() ? `<button class="link-btn" onclick="goAdmin()">Admin</button>` : ""}
-        <button class="link-btn" onclick="signOut()">Log out</button>
+      <div class="acct-wrap" id="acctWrap">
+        <button class="acct-trigger" onclick="toggleAccountMenu(event)" aria-haspopup="true" aria-expanded="false">
+          <div class="who"><b>${authState.user.name}</b><span>${tierLabel}</span></div>
+          <span class="acct-caret">&#9660;</span>
+        </button>
+        <div class="acct-menu" role="menu">
+          <button role="menuitem" onclick="openAccount('subscription')"><span class="acct-ico">&#9733;</span>Manage subscription</button>
+          <button role="menuitem" onclick="openAccount('profile')"><span class="acct-ico">&#9998;</span>Update profile</button>
+          <button role="menuitem" onclick="openAccount('password')"><span class="acct-ico">&#128274;</span>Manage password</button>
+          <div class="sep"></div>
+          <button role="menuitem" onclick="openAccount('performance')"><span class="acct-ico">&#9650;</span>Performance analysis</button>
+          <button role="menuitem" onclick="closeAccountMenu();viewMyResults()"><span class="acct-ico">&#9636;</span>Exam history</button>
+          ${isAdmin() ? `<div class="sep"></div><button role="menuitem" onclick="closeAccountMenu();goAdmin()"><span class="acct-ico">&#9881;</span>Admin</button>` : ""}
+          <div class="sep"></div>
+          <button role="menuitem" class="danger" onclick="closeAccountMenu();signOut()"><span class="acct-ico">&#8629;</span>Log out</button>
+        </div>
       </div>`;
   } else {
     el.innerHTML = `
@@ -5926,6 +6244,14 @@ document.getElementById("quizOptionsCloseBtn").addEventListener("click", closeQu
 }
 document.getElementById("quizOptionsOverlay").addEventListener("click", e=>{ if(e.target.id==="quizOptionsOverlay") closeQuizOptionsModal(); });
 document.getElementById("customTestCloseBtn").addEventListener("click", closeCustomTestModal);
+{ const ac = document.getElementById("accountOverlay");
+  const ab = document.getElementById("accountCloseBtn");
+  if(ab) ab.addEventListener("click", closeAccountModal);
+  if(ac) ac.addEventListener("click", e => { if(e.target === ac) closeAccountModal(); });
+  document.addEventListener("keydown", e => {
+    if(e.key === "Escape" && ac && ac.style.display === "flex") closeAccountModal();
+  });
+}
 document.getElementById("customTestOverlay").addEventListener("click", e=>{ if(e.target.id==="customTestOverlay") closeCustomTestModal(); });
 document.getElementById("vocabQuizCloseBtn").addEventListener("click", closeVocabQuizModal);
 document.getElementById("vocabQuizOverlay").addEventListener("click", e=>{ if(e.target.id==="vocabQuizOverlay") closeVocabQuizModal(); });
