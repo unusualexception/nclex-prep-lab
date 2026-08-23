@@ -256,9 +256,26 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
   .rail-btn.rail-btn-highlight{border-color:var(--gold);background:var(--gold-100);}
   .rail-btn.rail-btn-highlight:hover{border-color:var(--gold);}
   .rail-btn.rail-btn-highlight.active{background:var(--gold);color:#fff;}
-  .rail-btn.rail-btn-adaptive{border-color:var(--blue);}
-  .rail-btn.rail-btn-adaptive:hover{border-color:var(--blue);}
-  .rail-btn.rail-btn-adaptive.active{background:var(--blue);color:#fff;}
+  .ct-chip{border:1px solid var(--line);background:var(--panel);border-radius:999px;padding:5px 11px;font-size:11.5px;cursor:pointer;font-family:inherit;color:var(--ink-soft);}
+  .ct-chip.on{border-color:var(--teal-600);background:var(--teal-100);color:var(--teal-900);font-weight:600;}
+  .ct-grid{border-collapse:collapse;font-size:12px;width:100%;}
+  .ct-grid th{background:var(--teal-100);color:var(--teal-900);padding:6px 5px;font-size:10.5px;font-weight:600;border:1px solid var(--line);text-align:center;white-space:nowrap;}
+  .ct-grid td{border:1px solid var(--line);padding:3px 4px;text-align:center;}
+  .ct-grid td.ct-secname{text-align:left;font-size:11.5px;padding:5px 7px;white-space:nowrap;}
+  .ct-grid input{width:46px;padding:4px 3px;font-size:12px;font-family:inherit;text-align:center;border:1px solid var(--line);border-radius:5px;background:var(--panel);color:var(--ink);}
+  .ct-grid input:disabled{background:var(--paper);color:var(--line);}
+  .ct-grid input.ct-over{border-color:var(--incorrect);background:var(--incorrect-bg);}
+  .ct-grid .ct-rowtot,.ct-grid .ct-coltot{font-weight:700;background:var(--paper);font-size:11.5px;}
+  .ct-grid .ct-over-txt{color:var(--incorrect);}
+  .rail-btn.rail-btn-adaptive{border-color:var(--blue);background:var(--blue);color:#fff;}
+  .rail-btn.rail-btn-adaptive .mono{color:#fff;}
+  .rail-btn.rail-btn-adaptive:hover{border-color:var(--blue);filter:brightness(1.12);}
+  .rail-btn.rail-btn-adaptive.active{background:var(--blue);color:#fff;box-shadow:0 0 0 2px var(--paper),0 0 0 4px var(--blue);}
+  /* The generic locked-hover rule repaints the button --paper; on a solid blue
+     button with white text that renders white-on-white. Keep it blue. */
+  .rail-btn.rail-btn-adaptive.rail-btn-locked:hover{background:var(--blue);opacity:.7;}
+  /* Default status dot is a pale line-grey, which all but vanishes on blue. */
+  .rail-btn.rail-btn-adaptive .status{background:rgba(255,255,255,.45);}
   .rail-btn.rail-btn-case{border-color:var(--teal-600);}
   .rail-btn.rail-btn-case:hover{border-color:var(--teal-600);}
   .rail-btn.rail-btn-case.active{background:var(--teal-600);color:#fff;}
@@ -481,8 +498,14 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
     <div class="auth-modal custom-test-modal">
       <button class="auth-close" id="customTestCloseBtn" aria-label="Close">×</button>
       <h3 style="margin:0 0 4px;font-size:17px;">Create Your Own Test</h3>
-      <p style="font-size:12.5px;color:var(--ink-soft);margin:0 0 16px;">Pick how many questions from each category. The % shown is that category's real exam weight, for reference.</p>
-      <div id="customTestRows"></div>
+      <p style="font-size:12.5px;color:var(--ink-soft);margin:0 0 12px;">
+        Choose which question formats to include, then set how many from each section.
+        Percentages are that section&rsquo;s real exam weight, for reference.
+      </p>
+      <div class="mono" style="font-size:10.5px;color:var(--ink-soft);text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px;">Question formats</div>
+      <div id="ctTypeChips" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:14px;"></div>
+      <div id="customTestGridWrap" style="overflow-x:auto;"></div>
+      <div id="ctWarning" style="display:none;font-size:12px;color:var(--incorrect);background:var(--incorrect-bg);border-radius:8px;padding:8px 10px;margin-top:10px;"></div>
       <div class="custom-test-total" id="customTestTotal">Total: 0 questions</div>
       <div style="margin-top:14px;">
         <div class="mono" style="font-size:11px;color:var(--ink-soft);margin-bottom:8px;text-transform:uppercase;letter-spacing:.05em;">Answer feedback</div>
@@ -3211,10 +3234,15 @@ function renderRail(){
   const adaptiveLockBadge = adaptiveLocked ? LOCK_ICON : "";
   const adaptiveProg = state.adaptiveProgress;
   const adaptiveStatusClass = adaptiveProg ? (adaptiveProg.status==="done" ? "done":"progress") : "";
-  const adaptiveLabel = adaptiveProg && adaptiveProg.status==="done" ? `${adaptiveProg.score}%` : "";
+  /* No percentage here. An adaptive exam produces no score - it produces a
+     pass/fail decision or, if ended early, none at all - so a "67%" badge is
+     reporting a number the exam does not generate. Show how long the last
+     attempt ran instead, which is the figure that actually means something. */
+  const adaptiveLabel = (adaptiveProg && adaptiveProg.status==="done" && adaptiveProg.items)
+    ? `${adaptiveProg.items} Q` : "";
   const adaptiveSection = `
     <div class="rail-title" style="margin-top:16px;">Adaptive Practice</div>
-    <div class="rail-note" style="border-top:none;">85 questions, matching the real minimum exam length — gets harder or easier based on how you're doing, genuinely adaptive in mechanic though not empirically calibrated like the real NCLEX (see the results page for details).</div>
+    <div class="rail-note" style="border-top:none;">Variable length, 85&ndash;150 questions, exactly like the real exam &mdash; it ends the moment there is enough evidence to decide, which can be at any point after 85. Difficulty follows your answers, 3 case studies appear before question 85, and answers stay hidden until the end. Ability is estimated from this bank, not calibrated on real candidate data.</div>
     <button class="rail-btn rail-btn-adaptive ${state.quizKey==="adaptive"?"active":""} ${adaptiveLocked?'rail-btn-locked':''}" onclick="startAdaptiveTest()">
       <span class="id mono" style="display:inline-flex;align-items:center;gap:4px;">⚡ ADAPTIVE${adaptiveLockBadge}</span>
       <span style="display:flex;align-items:center;gap:6px;">
@@ -3304,7 +3332,15 @@ function renderRail(){
   ` + regularBtns + `
     <div class="rail-title" style="margin-top:16px;">Hard Tests</div>
     <div class="rail-note" style="border-top:none;">50 questions per test drawn from the hardest end of the bank: 1 unfolding case study (6 items) plus high-difficulty stand-alone items, category-weighted. Clinical judgment formats run well above the real exam here — that is deliberate, since those items are the hardest. No repeats across the 7 tests or with the Full Length Tests.</div>
-  ` + hardBtns + adaptiveSection + calcSection + clozeSection + matrixSection + hotspotSection + orderedSection + bowtieSection + trendSection + caseSection;
+  /* The seven single-format practice sections (calc, cloze, matrix, hot spot,
+     ordered, bow-tie, trend) are no longer separate rail entries - every one of
+     them is now a column in Create Your Own Test, where a format can be combined
+     with a section instead of being drilled in isolation. Eight buttons became
+     one, and the rail is navigable again. Case Studies keeps its own entry
+     because an unfolding case is a distinct experience, not just a format.
+     The section builders above are left in place and simply not rendered, so
+     restoring any of them is a one-line change. */
+  ` + hardBtns + adaptiveSection + caseSection;
 }
 function renderSessionScore(){
   document.getElementById("sessionScore").textContent = `${state.sessionCorrect} / ${state.sessionTotal} correct this session`;
@@ -3843,58 +3879,175 @@ function actuallyStartCaseStudyPractice(count){
 
 /* ---------- Create Your Own Test ---------- */
 let customTestFeedbackMode = "immediate";
-let customTestSelections = {}; // catKey -> number selected
+/* grid[categoryKey][typeKey] = count. Replaces the old per-category dropdowns:
+   the individual NGN practice modes that used to clutter the rail are now
+   columns here, so format and section are chosen together in one place. */
+let ctGrid = {};
+let ctTypesOn = {};
 
-function customTestDropdownOptions(available){
-  // Same granular low-end steps as before, extended with 75/100/125 at the
-  // top — hard-capped at 125 regardless of how large the bank is, matching
-  // the ceiling used by the regular full-length tests.
-  const steps = [0,5,10,15,20,25,30,40,50,75,100,125].filter(n=>n<=available);
-  const cap = Math.min(125, available);
-  if(!steps.includes(cap)) steps.push(cap);
-  return steps.sort((a,b)=>a-b);
+const CT_MAX_TOTAL   = 150;   // never more than a maximum-length exam
+const CT_MAX_SECTION = 30;    // per section (row)
+const CT_MAX_TYPE    = 30;    // per format (column)
+const CS_ITEMS_EACH  = 6;     // a case study is 6 linked items
+
+const CT_TYPES = [
+  {key:"single",           label:"Multiple\nchoice", match:q=>q.type==="single" && !(q.trendStages&&q.trendStages.length)},
+  {key:"sata",             label:"SATA",             match:q=>q.type==="sata"},
+  {key:"calc",             label:"Calc",             match:q=>q.type==="calc"},
+  {key:"cloze",            label:"Cloze",            match:q=>q.type==="cloze"},
+  {key:"matrix",           label:"Matrix",           match:q=>q.type==="matrix"},
+  {key:"hotspot",          label:"Hot spot",         match:q=>q.type==="hotspot"},
+  {key:"ordered_response", label:"Ordered",          match:q=>q.type==="ordered_response"},
+  {key:"bowtie",           label:"Bow-tie",          match:q=>q.type==="bowtie"},
+  {key:"trend",            label:"Trend",            match:q=>!!(q.trendStages&&q.trendStages.length)},
+  {key:"casestudy",        label:"Case\nstudy",      match:null}   // drawn from CASE_STUDIES
+];
+
+function ctAvailable(catKey, typeKey){
+  if(typeKey === "casestudy") return CASE_STUDIES.filter(cs=>cs.category===catKey).length;
+  const t = CT_TYPES.find(t=>t.key===typeKey);
+  return QUESTIONS.filter(q=>q.category===catKey && t.match(q)).length;
 }
+/* Case studies are counted in ITEMS for every cap, because six linked questions
+   cost the candidate six questions' worth of time regardless of how they are
+   labelled in the picker. */
+function ctCellItems(catKey, typeKey){
+  const n = (ctGrid[catKey] && ctGrid[catKey][typeKey]) || 0;
+  return typeKey==="casestudy" ? n*CS_ITEMS_EACH : n;
+}
+function ctRowItems(catKey){ return CT_TYPES.reduce((a,t)=>a+ctCellItems(catKey,t.key),0); }
+function ctColItems(typeKey){ return CATEGORIES.reduce((a,c)=>a+ctCellItems(c.key,typeKey),0); }
+function ctTotalItems(){ return CATEGORIES.reduce((a,c)=>a+ctRowItems(c.key),0); }
 
 function openCustomTestModal(){
-  customTestSelections = {};
+  ctGrid = {}; ctTypesOn = {};
+  CATEGORIES.forEach(c=>{ ctGrid[c.key] = {}; });
+  CT_TYPES.forEach(t=>{ ctTypesOn[t.key] = (t.key==="single" || t.key==="sata"); });
   customTestFeedbackMode = "immediate";
   document.getElementById("ctFeedbackImmediate").classList.add("active");
   document.getElementById("ctFeedbackEnd").classList.remove("active");
-  const rowsEl = document.getElementById("customTestRows");
-  rowsEl.innerHTML = CATEGORIES.map(c=>{
-    const available = QUESTIONS.filter(q=>q.category===c.key).length;
-    const options = customTestDropdownOptions(available);
-    return `<div class="ct-row">
-      <span class="ct-dot" style="background:${c.color}"></span>
-      <div class="ct-label">
-        <div class="ct-name">${c.label}</div>
-        <div class="ct-weight">Real exam weight: ${c.weight}% (${c.range})</div>
-      </div>
-      <select onchange="setCustomTestCount('${c.key}', this.value)">
-        ${options.map(n=>`<option value="${n}">${n}</option>`).join("")}
-      </select>
-    </div>`;
-  }).join("");
-  updateCustomTestTotal();
+  renderCtChips();
+  renderCtGrid();
   document.getElementById("customTestOverlay").style.display = "flex";
-  // Locked users still see the real builder rendered behind the paywall —
-  // a visible, tempting preview of exactly what they'd get, rather than a
-  // blank wall. The upgrade modal sits on top and blocks interaction with
-  // it, same as it would with any other locked feature.
   if(!authState.user || !hasActiveSubscription()){ openUpgradeModal(); }
 }
 function closeCustomTestModal(){
   document.getElementById("customTestOverlay").style.display = "none";
 }
-function setCustomTestCount(catKey, value){
-  const n = parseInt(value);
-  if(n>0) customTestSelections[catKey] = n;
-  else delete customTestSelections[catKey];
+
+function renderCtChips(){
+  document.getElementById("ctTypeChips").innerHTML = CT_TYPES.map(t=>{
+    const avail = CATEGORIES.reduce((a,c)=>a+ctAvailable(c.key,t.key),0);
+    if(!avail) return "";
+    return `<button class="ct-chip ${ctTypesOn[t.key]?"on":""}" onclick="toggleCtType('${t.key}')">${t.label.replace("\n"," ")}</button>`;
+  }).join("");
+}
+function toggleCtType(typeKey){
+  ctTypesOn[typeKey] = !ctTypesOn[typeKey];
+  if(!ctTypesOn[typeKey]) CATEGORIES.forEach(c=>{ delete ctGrid[c.key][typeKey]; });
+  renderCtChips(); renderCtGrid();
+}
+
+function renderCtGrid(){
+  const cols = CT_TYPES.filter(t=>ctTypesOn[t.key]);
+  const wrap = document.getElementById("customTestGridWrap");
+  if(!cols.length){
+    wrap.innerHTML = `<p style="font-size:12px;color:var(--ink-soft);margin:6px 0;">Choose at least one question format above.</p>`;
+    updateCustomTestTotal(); return;
+  }
+  wrap.innerHTML = `
+    <table class="ct-grid">
+      <thead><tr><th style="text-align:left;">Section</th>
+        ${cols.map(t=>`<th>${t.label.replace("\n","<br>")}</th>`).join("")}
+        <th>Total</th></tr></thead>
+      <tbody>
+        ${CATEGORIES.map(c=>`
+          <tr>
+            <td class="ct-secname"><span class="ct-dot" style="background:${c.color};display:inline-block;width:7px;height:7px;border-radius:50%;margin-right:5px;"></span>${c.label}<br><span style="font-size:10px;color:var(--ink-soft);">${c.weight}%</span></td>
+            ${cols.map(t=>{
+              const avail = ctAvailable(c.key,t.key);
+              const val = (ctGrid[c.key] && ctGrid[c.key][t.key]) || "";
+              return `<td><input type="number" min="0" max="${avail}" value="${val}"
+                        ${avail?"":"disabled"} title="${avail} available"
+                        data-cat="${c.key}" data-type="${t.key}"
+                        oninput="setCtCell('${c.key}','${t.key}',this.value)"></td>`;
+            }).join("")}
+            <td class="ct-rowtot" id="ctRowTot-${c.key}">0</td>
+          </tr>`).join("")}
+      </tbody>
+      <tfoot><tr><td class="ct-secname" style="font-weight:700;">Format total</td>
+        ${cols.map(t=>`<td class="ct-coltot" id="ctColTot-${t.key}">0</td>`).join("")}
+        <td class="ct-rowtot" id="ctGrandTot">0</td></tr></tfoot>
+    </table>
+    <p style="font-size:11px;color:var(--ink-soft);margin:8px 0 0;">
+      Limits: ${CT_MAX_TOTAL} questions in total, ${CT_MAX_SECTION} per section, ${CT_MAX_TYPE} per format.
+      Each case study counts as ${CS_ITEMS_EACH} questions.
+    </p>`;
   updateCustomTestTotal();
 }
+
+/* Every cap is enforced here, at the moment of entry, rather than at start:
+   telling someone their test is invalid only when they try to launch it means
+   they have to work out which of 80 cells to change. */
+function setCtCell(catKey, typeKey, raw){
+  const avail = ctAvailable(catKey, typeKey);
+  let n = Math.max(0, Math.floor(Number(raw)||0));
+  const msgs = [];
+  if(n > avail){ n = avail; msgs.push(`Only ${avail} ${typeKey==="casestudy"?"case studies":"questions"} of that format available in ${CATEGORIES.find(c=>c.key===catKey).label}.`); }
+
+  const prev = (ctGrid[catKey] && ctGrid[catKey][typeKey]) || 0;
+  ctGrid[catKey][typeKey] = n;
+
+  const per = typeKey==="casestudy" ? CS_ITEMS_EACH : 1;
+  if(ctRowItems(catKey) > CT_MAX_SECTION){
+    const room = CT_MAX_SECTION - (ctRowItems(catKey) - n*per);
+    n = Math.max(0, Math.floor(room/per));
+    ctGrid[catKey][typeKey] = n;
+    msgs.push(`Maximum ${CT_MAX_SECTION} questions per section.`);
+  }
+  if(ctColItems(typeKey) > CT_MAX_TYPE){
+    const room = CT_MAX_TYPE - (ctColItems(typeKey) - n*per);
+    n = Math.max(0, Math.floor(room/per));
+    ctGrid[catKey][typeKey] = n;
+    msgs.push(`Maximum ${CT_MAX_TYPE} questions per format.`);
+  }
+  if(ctTotalItems() > CT_MAX_TOTAL){
+    const room = CT_MAX_TOTAL - (ctTotalItems() - n*per);
+    n = Math.max(0, Math.floor(room/per));
+    ctGrid[catKey][typeKey] = n;
+    msgs.push(`Maximum ${CT_MAX_TOTAL} questions in a test.`);
+  }
+  if(!ctGrid[catKey][typeKey]) delete ctGrid[catKey][typeKey];
+
+  const inp = document.querySelector(`.ct-grid input[data-cat="${catKey}"][data-type="${typeKey}"]`);
+  if(inp && n !== Number(raw)) inp.value = n || "";
+  showCtWarning(msgs);
+  updateCustomTestTotal();
+}
+
+function showCtWarning(msgs){
+  const el = document.getElementById("ctWarning");
+  if(!el) return;
+  if(!msgs || !msgs.length){ el.style.display="none"; el.textContent=""; return; }
+  el.textContent = msgs.join(" ");
+  el.style.display = "block";
+  clearTimeout(showCtWarning._t);
+  showCtWarning._t = setTimeout(()=>{ el.style.display="none"; }, 4000);
+}
+
 function updateCustomTestTotal(){
-  const total = Object.values(customTestSelections).reduce((a,b)=>a+b,0);
-  document.getElementById("customTestTotal").textContent = `Total: ${total} question${total===1?"":"s"}`;
+  CATEGORIES.forEach(c=>{
+    const el = document.getElementById("ctRowTot-"+c.key);
+    if(el){ const v = ctRowItems(c.key); el.textContent = v; el.classList.toggle("ct-over-txt", v>CT_MAX_SECTION); }
+  });
+  CT_TYPES.forEach(t=>{
+    const el = document.getElementById("ctColTot-"+t.key);
+    if(el){ const v = ctColItems(t.key); el.textContent = v; el.classList.toggle("ct-over-txt", v>CT_MAX_TYPE); }
+  });
+  const total = ctTotalItems();
+  const g = document.getElementById("ctGrandTot"); if(g) g.textContent = total;
+  document.getElementById("customTestTotal").textContent =
+    `Total: ${total} question${total===1?"":"s"}${total?` of ${CT_MAX_TOTAL} max`:""}`;
   const btn = document.getElementById("customTestStartBtn");
   btn.disabled = total===0;
   btn.textContent = total===0 ? "Select at least 1 question to start" : `Start test (${total} questions) →`;
@@ -3920,17 +4073,31 @@ async function getNextCustomTestNumber(){
 
 async function startCustomTest(){
   if(!authState.user || !hasActiveSubscription()){ closeCustomTestModal(); openUpgradeModal(); return; }
-  const total = Object.values(customTestSelections).reduce((a,b)=>a+b,0);
+  const total = ctTotalItems();
   if(total===0) return;
   const btn = document.getElementById("customTestStartBtn");
   btn.disabled = true; btn.textContent = "Building your test…";
 
-  let selected = [];
-  Object.entries(customTestSelections).forEach(([catKey, count])=>{
-    const pool = shuffle(QUESTIONS.filter(q=>q.category===catKey));
-    selected.push(...pool.slice(0, count));
+  /* Draw per (section, format) cell. Case-study cells contribute whole 6-item
+     blocks that must stay contiguous and in CJMM order, so they are shuffled in
+     at BLOCK level while every other item shuffles individually. */
+  let singles = [];
+  let csBlocks = [];
+  CATEGORIES.forEach(c=>{
+    CT_TYPES.forEach(t=>{
+      const n = (ctGrid[c.key] && ctGrid[c.key][t.key]) || 0;
+      if(!n) return;
+      if(t.key === "casestudy"){
+        const picks = shuffle(CASE_STUDIES.filter(cs=>cs.category===c.key)).slice(0,n);
+        csBlocks.push(...buildCaseStudyBlocks(picks.map(cs=>cs.case_number)));
+      } else {
+        const pool = shuffle(QUESTIONS.filter(q=>q.category===c.key && t.match(q)));
+        singles.push(...pool.slice(0,n));
+      }
+    });
   });
-  selected = shuffle(selected);
+  const units = [...csBlocks, ...shuffle(singles).map(q=>[q])];
+  let selected = shuffle(units).flat();
 
   const n = await getNextCustomTestNumber();
   state.feedbackMode = customTestFeedbackMode;
@@ -5454,7 +5621,7 @@ function showResults(){
     state.freeMockTestProgress = {status:"done", score:pct};
     renderRail();
   } else if(state.quizType==="adaptive"){
-    state.adaptiveProgress = {status:"done", score:pct};
+    state.adaptiveProgress = {status:"done", items: total, decision: (state.cat && state.cat.decision) || null};
     renderRail();
   } else if(state.quizType==="casestudy"){
     state.caseStudyProgress[state.testNumberForRetake] = {status:"done", score:pct};
