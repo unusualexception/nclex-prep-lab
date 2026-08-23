@@ -3162,6 +3162,13 @@ function pickAdaptiveQuestion(category, tier, usedIds){
 /* ---------- Rendering: top bar ---------- */
 const LOCK_ICON = '<svg width="10" height="10" viewBox="0 0 24 24" style="display:block;" aria-hidden="true"><rect x="5" y="11" width="14" height="10" rx="2" fill="currentColor"/><path d="M8 11V7a4 4 0 0 1 8 0v4" stroke="currentColor" stroke-width="2.4" fill="none" stroke-linecap="round"/></svg>';
 const STAR_ICON = '<svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor" style="display:block;" aria-hidden="true"><path d="M12 2l2.9 6.6 7.1.6-5.4 4.7 1.6 7-6.2-3.8-6.2 3.8 1.6-7L2 9.2l7.1-.6L12 2z"/></svg>';
+/* Rail composition note: the seven single-format practice sections (calc,
+   cloze, matrix, hot spot, ordered, bow-tie, trend) are no longer separate
+   entries. Each is now a column in Create Your Own Test, so a format can be
+   combined with a section rather than drilled in isolation. Case Studies keeps
+   its own entry because an unfolding case is a distinct experience, not just a
+   format. Their section builders are still defined above and simply not
+   concatenated below, so restoring any is a one-line change. */
 function renderRail(){
   const list = document.getElementById("railList");
   const note = document.getElementById("railNote");
@@ -3332,14 +3339,6 @@ function renderRail(){
   ` + regularBtns + `
     <div class="rail-title" style="margin-top:16px;">Hard Tests</div>
     <div class="rail-note" style="border-top:none;">50 questions per test drawn from the hardest end of the bank: 1 unfolding case study (6 items) plus high-difficulty stand-alone items, category-weighted. Clinical judgment formats run well above the real exam here — that is deliberate, since those items are the hardest. No repeats across the 7 tests or with the Full Length Tests.</div>
-  /* The seven single-format practice sections (calc, cloze, matrix, hot spot,
-     ordered, bow-tie, trend) are no longer separate rail entries - every one of
-     them is now a column in Create Your Own Test, where a format can be combined
-     with a section instead of being drilled in isolation. Eight buttons became
-     one, and the rail is navigable again. Case Studies keeps its own entry
-     because an unfolding case is a distinct experience, not just a format.
-     The section builders above are left in place and simply not rendered, so
-     restoring any of them is a one-line change. */
   ` + hardBtns + adaptiveSection + caseSection;
 }
 function renderSessionScore(){
