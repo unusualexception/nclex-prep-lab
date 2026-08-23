@@ -2762,6 +2762,7 @@ const state = {
   questionStartTime:null,  // Date.now() when the current question was first shown — per-question timing
   examDeadline:null,       // Date.now() + budget, for Exam Mode countdown; null in Learning Mode
   examCapSec:null,         // Adaptive only: flat 5-hour cap, counted UPWARD. Reset in startQuizTimer()
+  matrixRowOrder:null,     // Display-position -> original row index, so shuffled matrix rows score correctly
   cat:null,                // Adaptive only: live CAT engine state (theta, se, responses, trace)
   catSessionId:null,       // Adaptive only: server-side cat_sessions row for resume/audit
   timerHandle:null         // setInterval reference for the visible HH:MM:SS clock
@@ -4032,7 +4033,11 @@ function renderQuestion(){
   state.questionStartTime = Date.now();
   const q = state.questions[state.index];
   const c = CAT[q.category];
-  const pct = Math.round((state.index/state.questions.length)*100);
+  /* For adaptive, questions are appended one at a time, so index/length is
+     always ~100% and meaningless. Measure against the 85/150 bounds instead. */
+  const pct = state.quizType==="adaptive"
+    ? Math.round(adaptiveProgressPct())
+    : Math.round((state.index/state.questions.length)*100);
   const isSata = q.type==="sata";
   const isCalc = q.type==="calc";
   const isCloze = q.type==="cloze";
@@ -4082,13 +4087,13 @@ function renderQuestion(){
           : `Question ${state.index+1} of ${state.questions.length}`
       }</span>${
         state.quizType==="adaptive"
-          ? `<span class="quiz-title" style="font-weight:400;opacity:.7;font-size:11.5px;margin-left:8px;">answered ${state.answers.length} · minimum ${CAT_MIN_ITEMS}, maximum ${CAT_MAX_ITEMS}</span>`
+          ? `<span class="quiz-title" id="quizAnsweredCount" style="font-weight:400;opacity:.7;font-size:11.5px;margin-left:8px;">${adaptiveCountText()}</span>`
           : ""
       }
       </div>
       <span class="quiz-timer mono" id="quizTimerDisplay">00:00:00</span>
     </div>
-    <div class="progress-track"><div class="progress-fill" style="width:${pct}%"></div></div>
+    <div class="progress-track"><div class="progress-fill" id="quizProgressFill" style="width:${pct}%"></div></div>
     ${scenarioPanel}
     ${trendPanel}
     <span class="cat-tag" style="background:${c.color}">${c.label} · ${q.subtopic}</span>
@@ -4339,17 +4344,28 @@ function submitClozeAnswer(){
      applied independently per row rather than one flat option list. */
 function renderMatrixContent(q){
   const isChoice = q.matrixType==="choice";
+  /* Rows are shuffled on every render. Stored row order frequently puts the
+     correct answers on a clean diagonal (row 1 -> column 1, row 2 -> column 2
+     ...), which a candidate can spot and complete without reading the rows.
+     Columns are deliberately NOT shuffled: their order is usually meaningful
+     (chronological moments, expected/unexpected), and reordering them would
+     make the item harder to read without making it harder to answer.
+     matrixRowOrder maps display position -> index in q.matrixRows, and every
+     selection and score below is keyed by DISPLAY position. */
+  state.matrixRowOrder = shuffle(q.matrixRows.map((_,i)=>i));
   state.matrixSelections = q.matrixRows.map(()=> isChoice ? null : new Set());
   const headerRow = `<tr><th class="matrix-row-header"></th>${q.matrixColumns.map(c=>`<th>${c}</th>`).join("")}</tr>`;
-  const bodyRows = q.matrixRows.map((row,rIdx)=>`
+  const bodyRows = state.matrixRowOrder.map((origIdx,dIdx)=>{
+    const row = q.matrixRows[origIdx];
+    return `
     <tr>
       <td class="matrix-row-label">${row.label}</td>
       ${q.matrixColumns.map((col,cIdx)=>`
         <td class="matrix-cell">
-          <input type="${isChoice?'radio':'checkbox'}" name="matrixRow${rIdx}" data-row="${rIdx}" data-col="${cIdx}"
+          <input type="${isChoice?'radio':'checkbox'}" name="matrixRow${dIdx}" data-row="${dIdx}" data-col="${cIdx}"
             onclick="${isChoice?'selectMatrixChoice(this)':'toggleMatrixResponse(this)'}">
         </td>`).join("")}
-    </tr>`).join("");
+    </tr>`;}).join("");
   return `<table class="matrix-table"><thead>${headerRow}</thead><tbody>${bodyRows}</tbody></table>`;
 }
 function selectMatrixChoice(el){
@@ -4373,12 +4389,14 @@ function submitMatrixAnswer(){
   if(!allAnswered) return;
   state.locked = true;
   let totalPoints = 0, totalMax = 0;
-  const rowResults = q.matrixRows.map((row,rIdx)=>{
+  const order = state.matrixRowOrder || q.matrixRows.map((_,i)=>i);
+  const rowResults = order.map((origIdx,rIdx)=>{
+    const row = q.matrixRows[origIdx];
     if(isChoice){
       const selected = state.matrixSelections[rIdx];
       const isCorrect = selected === row.correct;
       totalPoints += isCorrect ? 1 : 0; totalMax += 1;
-      return { selected, correct: row.correct, isCorrect, points: isCorrect?1:0, max:1 };
+      return { label: row.label, selected, correct: row.correct, isCorrect, points: isCorrect?1:0, max:1 };
     } else {
       const selectedSet = state.matrixSelections[rIdx];
       const correctSet = new Set(row.correct);
@@ -4387,7 +4405,7 @@ function submitMatrixAnswer(){
       const maxPoints = correctSet.size;
       const flooredPoints = Math.max(0, correctSelected - incorrectSelected);
       totalPoints += flooredPoints; totalMax += maxPoints;
-      return { selected: Array.from(selectedSet), correct: row.correct, correctSelected, incorrectSelected, points: flooredPoints, max: maxPoints };
+      return { label: row.label, selected: Array.from(selectedSet), correct: row.correct, correctSelected, incorrectSelected, points: flooredPoints, max: maxPoints };
     }
   });
   const fraction = totalMax>0 ? totalPoints/totalMax : 0;
@@ -4775,6 +4793,7 @@ function renderDeferredFeedback(){
 }
 
 function recordAnswer(q, status, selected, points){
+  setTimeout(refreshQuizProgress, 0);   // after state.answers has been appended below
   const timeSpentSeconds = state.questionStartTime ? Math.round((Date.now()-state.questionStartTime)/1000) : null;
   if(points===undefined){
     // Real NCLEX 0/1 scoring for standard single-response items (traditional
@@ -4887,6 +4906,34 @@ function isLastQuestion(){
    tells them which way the difficulty is about to move - the single signal the
    real NCLEX is designed to withhold. Items are still disabled after
    submission; they just are not marked. */
+
+/* The answered count has to move the instant an answer is submitted, not when
+   the candidate clicks through to the next question. On an adaptive exam it is
+   the only running total there is, and a student who has just submitted and
+   sees the old number reasonably assumes the answer did not register. */
+function adaptiveCountText(){
+  return `answered ${state.answers.length} · minimum ${CAT_MIN_ITEMS}, maximum ${CAT_MAX_ITEMS}`;
+}
+function adaptiveProgressPct(){
+  /* Always measured against the maximum. Scaling to the 85 minimum and then
+     rebasing to 150 makes the bar jump BACKWARDS at question 85 (98% -> 57%),
+     which reads as lost progress at the exact moment the exam becomes able to
+     end. A bar that only ever moves forward is worth more than one that fills
+     faster early. The exact position is carried by the answered count anyway. */
+  return (state.answers.length / CAT_MAX_ITEMS) * 100;
+}
+function refreshQuizProgress(){
+  const cnt = document.getElementById("quizAnsweredCount");
+  if(cnt && state.quizType==="adaptive") cnt.textContent = adaptiveCountText();
+  const bar = document.getElementById("quizProgressFill");
+  if(bar){
+    const pct = state.quizType==="adaptive"
+      ? adaptiveProgressPct()
+      : (state.answers.length / Math.max(1, effectiveTotalQuestions())) * 100;
+    bar.style.width = Math.min(100, pct) + "%";
+  }
+}
+
 function mayRevealAnswer(){
   return state.feedbackMode === "immediate";
 }
@@ -5379,7 +5426,7 @@ function showResults(){
     const matrixNote = (a && a.matrixDetail) ? `
       <div style="margin:0 0 10px;">
         ${a.matrixDetail.rowResults.map((r,idx)=>{
-          const rowLabel = q.matrixRows[idx].label;
+          const rowLabel = r.label || (q.matrixRows[idx] && q.matrixRows[idx].label) || "";
           const yourSel = Array.isArray(r.selected) ? (r.selected.join(", ")||"(none)") : (r.selected || "(none)");
           const correctSel = Array.isArray(r.correct) ? r.correct.join(", ") : r.correct;
           return `<p style="font-size:11.5px;color:var(--ink-soft);margin:2px 0;" class="mono">${rowLabel} — you: "${yourSel}" · correct: "${correctSel}" (${r.points}/${r.max})</p>`;
