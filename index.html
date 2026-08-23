@@ -639,6 +639,65 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
     </div>
   </div>
 
+  <div class="auth-overlay" id="adaptiveBriefOverlay" style="display:none;">
+    <div class="auth-modal" style="max-width:640px;max-height:88vh;overflow-y:auto;">
+      <button class="auth-close" id="adaptiveBriefCloseBtn" aria-label="Close">&times;</button>
+      <h3 style="margin:0 0 4px;font-size:17px;">Adaptive Exam — before you begin</h3>
+      <p style="font-size:12.5px;color:var(--ink-soft);margin:0 0 16px;">
+        This one runs under real exam conditions. Please read this before starting.
+      </p>
+
+      <div style="border:1px solid var(--line);border-radius:10px;padding:14px 16px;margin-bottom:12px;">
+        <div style="font-weight:700;font-size:13px;margin-bottom:8px;">How the exam behaves</div>
+        <ul style="margin:0;padding-left:18px;font-size:12.8px;line-height:1.65;color:var(--ink-soft);">
+          <li><strong>85 to 150 questions.</strong> The length is not fixed. It depends entirely on your answers.</li>
+          <li><strong>Difficulty adapts.</strong> Answer well and questions get harder. That is expected &mdash; the exam targets questions you have roughly a 50% chance of answering correctly, so it is meant to feel hard throughout.</li>
+          <li><strong>It can stop at any point after question 85</strong>, the moment there is enough evidence to reach a decision.</li>
+          <li><strong>3 unfolding case studies</strong> appear before question 85, each with 6 linked questions.</li>
+        </ul>
+      </div>
+
+      <div style="border:1px solid var(--line);border-radius:10px;padding:14px 16px;margin-bottom:12px;">
+        <div style="font-weight:700;font-size:13px;margin-bottom:8px;">Rules that are enforced</div>
+        <ul style="margin:0;padding-left:18px;font-size:12.8px;line-height:1.65;color:var(--ink-soft);">
+          <li><strong>No going back.</strong> Once an answer is submitted it cannot be changed, and questions cannot be skipped.</li>
+          <li><strong>No answers or rationales during the exam.</strong> You will not know whether any answer was right until the very end.</li>
+          <li><strong>5-hour limit, and the clock does not pause.</strong> It keeps running through breaks, and if you close the window or lose power.</li>
+          <li><strong>Running out of time before question 85 is a fail</strong>, exactly as on the real exam.</li>
+        </ul>
+      </div>
+
+      <div style="border:1px solid var(--line);border-radius:10px;padding:14px 16px;margin-bottom:12px;background:var(--panel-2, transparent);">
+        <div style="font-weight:700;font-size:13px;margin-bottom:8px;">When it ends</div>
+        <p style="margin:0;font-size:12.8px;line-height:1.65;color:var(--ink-soft);">
+          The exam will stop suddenly, without warning. You will see a message confirming it has ended.
+          <strong>Where it stops tells you nothing about whether you passed</strong> &mdash; stopping at 85 happens
+          for both clear passes and clear fails, and reaching 150 simply means the result stayed close to the line.
+          Your result and full performance report are released afterwards, not immediately.
+        </p>
+      </div>
+
+      <details style="margin-bottom:16px;">
+        <summary style="cursor:pointer;font-size:12.5px;font-weight:600;color:var(--ink-soft);">
+          If your connection drops or your device fails
+        </summary>
+        <p style="margin:8px 0 0;font-size:12.5px;line-height:1.6;color:var(--ink-soft);">
+          Every answer is saved as you go, so you can resume where you left off. Because the clock runs
+          continuously, an interruption costs you time. If you are genuinely disconnected mid-question and
+          return within 24 hours, up to 30 minutes is credited back automatically, once every 30 days.
+        </p>
+      </details>
+
+      <div style="display:flex;gap:10px;">
+        <button class="btn secondary" style="flex:1;border-width:1.5px;" onclick="closeAdaptiveBrief()">Not now</button>
+        <button class="btn" style="flex:2;" onclick="confirmAdaptiveStart()">I understand &mdash; start the exam</button>
+      </div>
+      <p style="font-size:11px;color:var(--ink-soft);margin:10px 0 0;text-align:center;">
+        The timer starts the moment you press start.
+      </p>
+    </div>
+  </div>
+
   <div class="auth-overlay" id="quizOptionsOverlay" style="display:none;">
     <div class="auth-modal">
       <button class="auth-close" id="quizOptionsCloseBtn" aria-label="Close">×</button>
@@ -3426,7 +3485,31 @@ function startAdaptiveTest(){
   const access = adaptiveTestAccessState();
   if(access!=="open"){ openUpgradeModal(); return; }
   pendingStart = {kind:"adaptive", key:null};
-  openQuizOptionsModal("Adaptive Practice", "none");
+  /* The adaptive exam does NOT offer a Learning/Exam mode choice the way the
+     other modes do. It always withholds answers and rationales until the end,
+     because seeing a result mid-exam would tell the candidate which direction
+     the difficulty was moving -- which is exactly the signal the real exam
+     hides. So this opens a briefing instead of the mode picker. */
+  openAdaptiveBrief();
+}
+function openAdaptiveBrief(){
+  const el = document.getElementById("adaptiveBriefOverlay");
+  if(!el){ confirmQuizMode("end"); return; }
+  el.style.display = "flex";
+  document.body.style.overflow = "hidden";
+}
+function closeAdaptiveBrief(){
+  const el = document.getElementById("adaptiveBriefOverlay");
+  if(el) el.style.display = "none";
+  document.body.style.overflow = "";
+  pendingStart = null;
+}
+function confirmAdaptiveStart(){
+  const el = document.getElementById("adaptiveBriefOverlay");
+  if(el) el.style.display = "none";
+  document.body.style.overflow = "";
+  /* Always end-of-exam review. Never "immediate". */
+  confirmQuizMode("end");
 }
 /* Retained for retake/internal use (a specific numbered case study can
    still be started this way), but no longer surfaced directly in the rail
@@ -5103,6 +5186,16 @@ document.getElementById("authForm").addEventListener("submit", handleAuthSubmit)
 document.getElementById("authCloseBtn").addEventListener("click", closeAuthModal);
 document.getElementById("authOverlay").addEventListener("click", e=>{ if(e.target.id==="authOverlay") closeAuthModal(); });
 document.getElementById("quizOptionsCloseBtn").addEventListener("click", closeQuizOptionsModal);
+{ /* Adaptive briefing: close button, backdrop click, and Escape. Matches how
+     every other overlay in the app dismisses. */
+  const abEl = document.getElementById("adaptiveBriefOverlay");
+  const abBtn = document.getElementById("adaptiveBriefCloseBtn");
+  if(abBtn) abBtn.addEventListener("click", closeAdaptiveBrief);
+  if(abEl) abEl.addEventListener("click", e => { if(e.target === abEl) closeAdaptiveBrief(); });
+  document.addEventListener("keydown", e => {
+    if(e.key === "Escape" && abEl && abEl.style.display === "flex") closeAdaptiveBrief();
+  });
+}
 document.getElementById("quizOptionsOverlay").addEventListener("click", e=>{ if(e.target.id==="quizOptionsOverlay") closeQuizOptionsModal(); });
 document.getElementById("customTestCloseBtn").addEventListener("click", closeCustomTestModal);
 document.getElementById("customTestOverlay").addEventListener("click", e=>{ if(e.target.id==="customTestOverlay") closeCustomTestModal(); });
